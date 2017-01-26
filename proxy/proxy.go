@@ -177,7 +177,7 @@ func (p *proxy) lookup(request *http.Request) *route.Pool {
 func (p *proxy) ServeHTTP(responseWriter http.ResponseWriter, request *http.Request) {
 	proxyWriter := responseWriter.(utils.ProxyResponseWriter)
 
-	alr := proxyWriter.Context().Value("AccessLogRecord")
+	alr := request.Context().Value("AccessLogRecord")
 	if alr == nil {
 		p.logger.Error("AccessLogRecord not set on context", zap.Error(errors.New("failed-to-access-LogRecord")))
 	}
@@ -301,7 +301,7 @@ func (p *proxy) ServeHTTP(responseWriter http.ResponseWriter, request *http.Requ
 	roundTripper := round_tripper.NewProxyRoundTripper(backend,
 		dropsonde.InstrumentedRoundTripper(p.transport), iter, handler.Logger(), after)
 
-	newReverseProxy(roundTripper, request, routeServiceArgs, p.routeServiceConfig, p.forceForwardedProtoHttps).ServeHTTP(proxyWriter, request)
+	newReverseProxy(roundTripper, request, routeServiceArgs, p.routeServiceConfig, p.forceForwardedProtoHttps).ServeHTTP(responseWriter, request)
 }
 
 func newReverseProxy(proxyTransport http.RoundTripper, req *http.Request,
