@@ -59,6 +59,28 @@ type BufferPool interface {
 	Put([]byte)
 }
 
+type bufferPool struct {
+	pool *sync.Pool
+}
+
+func NewBufferPool() BufferPool {
+	return &bufferPool{
+		pool: new(sync.Pool),
+	}
+}
+
+func (b *bufferPool) Get() []byte {
+	buf := b.pool.Get()
+	if buf == nil {
+		return make([]byte, 2048)
+	}
+	return buf.([]byte)
+}
+
+func (b *bufferPool) Put(buf []byte) {
+	b.pool.Put(buf)
+}
+
 func copyHeader(dst, src http.Header) {
 	for k, vv := range src {
 		for _, v := range vv {

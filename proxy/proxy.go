@@ -113,6 +113,7 @@ func NewProxy(
 		Transport:     p.proxyRoundTripper(httpTransport),
 		FlushInterval: 50 * time.Millisecond,
 		Director:      p.setupProxyRequest,
+		BufferPool:    NewBufferPool(),
 	}
 
 	n := negroni.New()
