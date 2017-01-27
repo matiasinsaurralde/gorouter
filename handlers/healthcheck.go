@@ -35,6 +35,7 @@ func (h *healthcheck) ServeHTTP(rw http.ResponseWriter, r *http.Request, next ht
 	alr := r.Context().Value("AccessLogRecord")
 	if alr == nil {
 		h.logger.Error("AccessLogRecord-not-set-on-context", zap.Error(errors.New("failed-to-access-log-record")))
+		return
 	}
 	accessLogRecord = alr.(*schema.AccessLogRecord)
 	if h.userAgent == "" || r.Header.Get("User-Agent") == h.userAgent {
