@@ -35,7 +35,7 @@ import (
 
 type connHandler func(*test_util.HttpConn)
 
-var _ = Describe("Proxy", func() {
+var _ = FDescribe("Proxy", func() {
 
 	It("responds to http/1.0 with path", func() {
 		ln := registerHandler(r, "test/my_path", func(conn *test_util.HttpConn) {

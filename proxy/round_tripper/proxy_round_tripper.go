@@ -1,6 +1,7 @@
 package round_tripper
 
 import (
+	"errors"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -12,35 +13,35 @@ import (
 	"code.cloudfoundry.org/gorouter/route"
 )
 
-type AfterRoundTrip func(rsp *http.Response, endpoint *route.Endpoint, err error)
+const (
+	VcapCookieId    = "__VCAP_ID__"
+	StickyCookieKey = "JSESSIONID"
+)
 
-func NewProxyRoundTripper(backend bool, transport http.RoundTripper, endpointIterator route.EndpointIterator,
-	logger logger.Logger, afterRoundTrip AfterRoundTrip) http.RoundTripper {
-	if backend {
-		return &BackendRoundTripper{
-			transport: transport,
-			iter:      endpointIterator,
-			logger:    logger,
-			after:     afterRoundTrip,
-		}
-	} else {
-		rlogger := logger.Session("route-service")
-		return &RouteServiceRoundTripper{
-			transport: transport,
-			logger:    rlogger,
-			after:     afterRoundTrip,
-		}
+type AfterRoundTrip func(req *http.Request, rsp *http.Response, endpoint *route.Endpoint, err error)
+
+func NewProxyRoundTripper(
+	transport http.RoundTripper,
+	logger logger.Logger,
+	afterRoundTrip AfterRoundTrip,
+	defaultLoadBalance string,
+) http.RoundTripper {
+	return &RoundTripper{
+		logger:             logger,
+		transport:          transport,
+		after:              afterRoundTrip,
+		defaultLoadBalance: defaultLoadBalance,
 	}
 }
 
-type BackendRoundTripper struct {
-	iter      route.EndpointIterator
-	transport http.RoundTripper
-	logger    logger.Logger
-	after     AfterRoundTrip
+type RoundTripper struct {
+	transport          http.RoundTripper
+	logger             logger.Logger
+	after              AfterRoundTrip
+	defaultLoadBalance string
 }
 
-func (rt *BackendRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+func (rt *RoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
 	var err error
 	var res *http.Response
 	var endpoint *route.Endpoint
@@ -53,8 +54,16 @@ func (rt *BackendRoundTripper) RoundTrip(request *http.Request) (*http.Response,
 		}()
 	}
 
+	rp := request.Context().Value("RoutePool")
+	if rp == nil {
+		return nil, errors.New("RoutePool not set on context")
+	}
+
+	routePool := rp.(*route.Pool)
+	stickyEndpointId := getStickySession(request)
+	iter := routePool.Endpoints(rt.defaultLoadBalance, stickyEndpointId)
 	for retry := 0; retry < handler.MaxRetries; retry++ {
-		endpoint, err = rt.selectEndpoint(request)
+		endpoint, err = rt.selectEndpoint(iter, request)
 		if err != nil {
 			break
 		}
@@ -62,18 +71,18 @@ func (rt *BackendRoundTripper) RoundTrip(request *http.Request) (*http.Response,
 		rt.setupRequest(request, endpoint)
 
 		// increment connection stats
-		rt.iter.PreRequest(endpoint)
+		iter.PreRequest(endpoint)
 
 		res, err = rt.transport.RoundTrip(request)
 
 		// decrement connection stats
-		rt.iter.PostRequest(endpoint)
+		iter.PostRequest(endpoint)
 
 		if err == nil || !retryableError(err) {
 			break
 		}
 
-		rt.reportError(err)
+		rt.reportError(iter, err)
 	}
 
 	if err != nil {
@@ -81,14 +90,14 @@ func (rt *BackendRoundTripper) RoundTrip(request *http.Request) (*http.Response,
 	}
 
 	if rt.after != nil {
-		rt.after(res, endpoint, err)
+		rt.after(request, res, endpoint, err)
 	}
 
 	return res, err
 }
 
-func (rt *BackendRoundTripper) selectEndpoint(request *http.Request) (*route.Endpoint, error) {
-	endpoint := rt.iter.Next()
+func (rt *RoundTripper) selectEndpoint(iter route.EndpointIterator, request *http.Request) (*route.Endpoint, error) {
+	endpoint := iter.Next()
 	if endpoint == nil {
 		return nil, handler.NoEndpointsAvailable
 	}
@@ -97,55 +106,26 @@ func (rt *BackendRoundTripper) selectEndpoint(request *http.Request) (*route.End
 	return endpoint, nil
 }
 
-func (rt *BackendRoundTripper) setupRequest(request *http.Request, endpoint *route.Endpoint) {
+func (rt *RoundTripper) setupRequest(request *http.Request, endpoint *route.Endpoint) {
 	rt.logger.Debug("backend")
 	request.URL.Host = endpoint.CanonicalAddr()
 	request.Header.Set("X-CF-ApplicationID", endpoint.ApplicationId)
 	handler.SetRequestXCfInstanceId(request, endpoint)
 }
 
-func (rt *BackendRoundTripper) reportError(err error) {
-	rt.iter.EndpointFailed()
+func (rt *RoundTripper) reportError(iter route.EndpointIterator, err error) {
+	iter.EndpointFailed()
 	rt.logger.Error("backend-endpoint-failed", zap.Error(err))
 }
 
-type RouteServiceRoundTripper struct {
-	transport http.RoundTripper
-	after     AfterRoundTrip
-	logger    logger.Logger
-}
-
-func (rt *RouteServiceRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
-	var err error
-	var res *http.Response
-
-	for retry := 0; retry < handler.MaxRetries; retry++ {
-		res, err = rt.transport.RoundTrip(request)
-		if err == nil || !retryableError(err) {
-			break
+func getStickySession(request *http.Request) string {
+	// Try choosing a backend using sticky session
+	if _, err := request.Cookie(StickyCookieKey); err == nil {
+		if sticky, err := request.Cookie(VcapCookieId); err == nil {
+			return sticky.Value
 		}
-
-		rt.reportError(err)
 	}
-	rt.reportResponseError(request, res)
-
-	if rt.after != nil {
-		endpoint := newRouteServiceEndpoint()
-		rt.after(res, endpoint, err)
-	}
-
-	return res, err
-}
-
-// log route service response errors for status code < 200 || >300
-func (rs *RouteServiceRoundTripper) reportResponseError(req *http.Request, resp *http.Response) {
-	if resp != nil && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
-		rs.logger.Info("response", zap.String("endpoint", req.URL.String()), zap.Int("status-code", resp.StatusCode))
-	}
-}
-
-func (rs *RouteServiceRoundTripper) reportError(err error) {
-	rs.logger.Error("connection-failed", zap.Error(err))
+	return ""
 }
 
 func retryableError(err error) bool {
