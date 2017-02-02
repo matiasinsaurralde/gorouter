@@ -857,6 +857,29 @@ var _ = Describe("Proxy", func() {
 		conn.Close()
 	})
 
+	FIt("emits a xxx metric when upgrades to websocket", func() {
+		ln := registerHandler(r, "ws-cs-header", func(conn *test_util.HttpConn) {
+			resp := test_util.NewResponse(http.StatusSwitchingProtocols)
+			resp.Header.Set("Upgrade", "Websocket")
+			resp.Header.Set("Connection", "Upgrade")
+
+			conn.WriteResponse(resp)
+			conn.Close()
+		})
+		defer ln.Close()
+
+		conn := dialProxy(proxyServer)
+
+		req := test_util.NewRequest("GET", "ws-cs-header", "/chat", nil)
+		req.Header.Add("Upgrade", "Websocket")
+		req.Header.Add("Connection", "keep-alive")
+		req.Header.Add("Connection", "Upgrade")
+
+		conn.WriteRequest(req)
+		Expect(fakeReporter.CaptureRoutingResponseCallCount()).To(Equal(1))
+
+	})
+
 	It("upgrades a Tcp request", func() {
 		ln := registerHandler(r, "tcp-handler", func(conn *test_util.HttpConn) {
 			conn.WriteLine("hello")
