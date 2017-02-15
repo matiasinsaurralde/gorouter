@@ -386,4 +386,35 @@ var _ = Describe("MetricsReporter", func() {
 			Expect(unit).To(Equal("ns"))
 		})
 	})
+
+	Describe("Unregister messages", func() {
+		Context("when unregister msg with component name is incremented", func() {
+			BeforeEach(func() {
+				callString := "oauth-server"
+				metricReporter.CaptureUnregistryMessage(callString)
+			})
+			It("increments the counter metric", func() {
+				Expect(sender.IncrementCounterCallCount()).To(Equal(1))
+				Expect(sender.IncrementCounterArgsForCall(0)).To(Equal("unregistry_message.oauth-server"))
+			})
+			It("increments the counter metric for each component unregistered", func() {
+				callStringTwo := "api-server"
+				metricReporter.CaptureUnregistryMessage(callStringTwo)
+				Expect(sender.IncrementCounterCallCount()).To(Equal(2))
+				Expect(sender.IncrementCounterArgsForCall(0)).To(Equal("unregistry_message.oauth-server"))
+				Expect(sender.IncrementCounterArgsForCall(1)).To(Equal("unregistry_message.api-server"))
+			})
+		})
+		Context("when unregister msg with empty component name is incremented", func() {
+			BeforeEach(func() {
+				callString := ""
+				metricReporter.CaptureUnregistryMessage(callString)
+			})
+			It("increments the counter metric", func() {
+				Expect(sender.IncrementCounterCallCount()).To(Equal(1))
+				Expect(sender.IncrementCounterArgsForCall(0)).To(Equal("unregistry_message"))
+			})
+		})
+	})
+
 })

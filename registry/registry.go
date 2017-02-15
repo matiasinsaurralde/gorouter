@@ -109,7 +109,8 @@ func (r *RouteRegistry) Unregister(uri route.Uri, endpoint *route.Endpoint) {
 		zap.String("backend", endpoint.CanonicalAddr()),
 		zap.Object("modification_tag", endpoint.ModificationTag),
 	}
-	r.reporter.CaptureRegistryMessage(endpoint)
+	componentName := endpoint.Tags["component"]
+	r.reporter.CaptureUnregistryMessage(componentName)
 
 	r.Lock()
 
