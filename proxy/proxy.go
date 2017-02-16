@@ -73,8 +73,12 @@ func NewProxy(
 	logger logger.Logger,
 	accessLogger access_log.AccessLogger,
 	c *config.Config,
+<<<<<<< eccfa8bc1455deee0be2e1c2051356bc8945f08b
 	registry handlers.LookupRegistry,
+=======
+>>>>>>> Moved protocl check and lookup into negroni handlers
 	reporter metrics.CombinedReporter,
+	registry handlers.LookupRegistry,
 	routeServiceConfig *routeservice.RouteServiceConfig,
 	tlsConfig *tls.Config,
 	heartbeatOK *int32,
