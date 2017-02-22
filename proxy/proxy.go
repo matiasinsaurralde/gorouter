@@ -16,7 +16,7 @@ import (
 	"code.cloudfoundry.org/gorouter/config"
 	"code.cloudfoundry.org/gorouter/handlers"
 	"code.cloudfoundry.org/gorouter/logger"
-	"code.cloudfoundry.org/gorouter/metrics/reporter"
+	"code.cloudfoundry.org/gorouter/metrics"
 	"code.cloudfoundry.org/gorouter/proxy/handler"
 	"code.cloudfoundry.org/gorouter/proxy/round_tripper"
 	"code.cloudfoundry.org/gorouter/proxy/utils"
@@ -56,7 +56,8 @@ type proxy struct {
 	ip                       string
 	traceKey                 string
 	logger                   logger.Logger
-	reporter                 reporter.ProxyReporter
+	registry                 LookupRegistry
+	reporter                 metrics.CombinedReporter
 	accessLogger             access_log.AccessLogger
 	transport                *http.Transport
 	secureCookies            bool
@@ -73,7 +74,7 @@ func NewProxy(
 	accessLogger access_log.AccessLogger,
 	c *config.Config,
 	registry handlers.LookupRegistry,
-	reporter reporter.ProxyReporter,
+	reporter metrics.CombinedReporter,
 	routeServiceConfig *routeservice.RouteServiceConfig,
 	tlsConfig *tls.Config,
 	heartbeatOK *int32,
