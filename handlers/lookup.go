@@ -8,15 +8,13 @@ import (
 	"strings"
 
 	"code.cloudfoundry.org/gorouter/access_log/schema"
+	router_http "code.cloudfoundry.org/gorouter/common/http"
 	"code.cloudfoundry.org/gorouter/logger"
 	"code.cloudfoundry.org/gorouter/metrics"
 	"code.cloudfoundry.org/gorouter/registry"
+	"code.cloudfoundry.org/gorouter/route"
 	"github.com/uber-go/zap"
 	"github.com/urfave/negroni"
-
-	"code.cloudfoundry.org/gorouter/route"
-
-	router_http "code.cloudfoundry.org/gorouter/common/http"
 )
 
 type lookupHandler struct {
