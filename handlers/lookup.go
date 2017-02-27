@@ -9,7 +9,8 @@ import (
 
 	"code.cloudfoundry.org/gorouter/access_log/schema"
 	"code.cloudfoundry.org/gorouter/logger"
-	"code.cloudfoundry.org/gorouter/metrics/reporter"
+	"code.cloudfoundry.org/gorouter/metrics"
+	"code.cloudfoundry.org/gorouter/registry"
 	"github.com/uber-go/zap"
 	"github.com/urfave/negroni"
 
@@ -18,19 +19,14 @@ import (
 	router_http "code.cloudfoundry.org/gorouter/common/http"
 )
 
-type LookupRegistry interface {
-	Lookup(uri route.Uri) *route.Pool
-	LookupWithInstance(uri route.Uri, appId string, appIndex string) *route.Pool
-}
-
 type lookupHandler struct {
-	registry LookupRegistry
-	reporter reporter.ProxyReporter
+	registry registry.Registry
+	reporter metrics.CombinedReporter
 	logger   logger.Logger
 }
 
 // NewLookup creates a handler responsible for looking up a route.
-func NewLookup(registry LookupRegistry, rep reporter.ProxyReporter, logger logger.Logger) negroni.Handler {
+func NewLookup(registry registry.Registry, rep metrics.CombinedReporter, logger logger.Logger) negroni.Handler {
 	return &lookupHandler{
 		registry: registry,
 		reporter: rep,
