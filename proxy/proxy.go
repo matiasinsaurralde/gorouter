@@ -20,6 +20,7 @@ import (
 	"code.cloudfoundry.org/gorouter/proxy/handler"
 	"code.cloudfoundry.org/gorouter/proxy/round_tripper"
 	"code.cloudfoundry.org/gorouter/proxy/utils"
+	"code.cloudfoundry.org/gorouter/registry"
 	"code.cloudfoundry.org/gorouter/route"
 	"code.cloudfoundry.org/gorouter/routeservice"
 	"github.com/uber-go/zap"
@@ -56,7 +57,7 @@ type proxy struct {
 	ip                       string
 	traceKey                 string
 	logger                   logger.Logger
-	registry                 LookupRegistry
+	registry                 registry.Registry
 	reporter                 metrics.CombinedReporter
 	accessLogger             access_log.AccessLogger
 	transport                *http.Transport
@@ -73,12 +74,8 @@ func NewProxy(
 	logger logger.Logger,
 	accessLogger access_log.AccessLogger,
 	c *config.Config,
-<<<<<<< eccfa8bc1455deee0be2e1c2051356bc8945f08b
-	registry handlers.LookupRegistry,
-=======
->>>>>>> Moved protocl check and lookup into negroni handlers
+	registry registry.Registry,
 	reporter metrics.CombinedReporter,
-	registry handlers.LookupRegistry,
 	routeServiceConfig *routeservice.RouteServiceConfig,
 	tlsConfig *tls.Config,
 	heartbeatOK *int32,
