@@ -57,6 +57,7 @@ func (p *protocolCheck) ServeHTTP(rw http.ResponseWriter, r *http.Request, next 
 		fmt.Fprintf(buf, "HTTP/1.0 400 Bad Request\r\n\r\n")
 		buf.Flush()
 		conn.Close()
+		return
 	}
 
 	next(rw, r)

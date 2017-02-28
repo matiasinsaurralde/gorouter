@@ -73,14 +73,14 @@ func (l *lookupHandler) lookup(r *http.Request) *route.Pool {
 	appInstanceHeader := r.Header.Get(router_http.CfAppInstance)
 
 	if appInstanceHeader != "" {
-		appId, appIndex, err := router_http.ValidateCfAppInstance(appInstanceHeader)
+		appID, appIndex, err := router_http.ValidateCfAppInstance(appInstanceHeader)
 
 		if err != nil {
 			l.logger.Error("invalid-app-instance-header", zap.Error(err))
 			return nil
-		} else {
-			return l.registry.LookupWithInstance(uri, appId, appIndex)
 		}
+
+		return l.registry.LookupWithInstance(uri, appID, appIndex)
 	}
 
 	return l.registry.Lookup(uri)
