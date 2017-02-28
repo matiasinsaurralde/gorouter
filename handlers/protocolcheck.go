@@ -3,9 +3,10 @@ package handlers
 import (
 	"bufio"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
+
+	"fmt"
 
 	"code.cloudfoundry.org/gorouter/access_log/schema"
 	"code.cloudfoundry.org/gorouter/logger"
