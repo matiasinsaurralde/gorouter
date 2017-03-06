@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	router_http "code.cloudfoundry.org/gorouter/common/http"
-
 	"code.cloudfoundry.org/gorouter/handlers"
 	"code.cloudfoundry.org/gorouter/test_util"
 	"code.cloudfoundry.org/lager"
@@ -52,68 +50,99 @@ var _ = Describe("Zipkin", func() {
 
 		It("sets zipkin headers", func() {
 			handler.ServeHTTP(resp, req, nextHandler)
-			Expect(req.Header.Get(router_http.B3SpanIdHeader)).ToNot(BeEmpty())
-			Expect(req.Header.Get(router_http.B3TraceIdHeader)).ToNot(BeEmpty())
-			Expect(req.Header.Get(router_http.B3ParentSpanIdHeader)).To(BeEmpty())
+			Expect(req.Header.Get(handlers.B3SpanIdHeader)).ToNot(BeEmpty())
+			Expect(req.Header.Get(handlers.B3TraceIdHeader)).ToNot(BeEmpty())
+			Expect(req.Header.Get(handlers.B3ParentSpanIdHeader)).To(BeEmpty())
 		})
 
 		It("adds zipkin headers to access log record", func() {
 			handler.ServeHTTP(resp, req, nextHandler)
-			Expect(*headersToLog).To(ContainElement(router_http.B3SpanIdHeader))
-			Expect(*headersToLog).To(ContainElement(router_http.B3TraceIdHeader))
-			Expect(*headersToLog).To(ContainElement(router_http.B3ParentSpanIdHeader))
+			Expect(*headersToLog).To(ContainElement(handlers.B3SpanIdHeader))
+			Expect(*headersToLog).To(ContainElement(handlers.B3TraceIdHeader))
+			Expect(*headersToLog).To(ContainElement(handlers.B3ParentSpanIdHeader))
 		})
 
-		Context("with B3TraceIdHeader and B3SpanIdHeader already set", func() {
+		Context("with B3TraceIdHeader, B3SpanIdHeader and B3ParentSpanIdHeader already set", func() {
 			BeforeEach(func() {
-				req.Header.Set(router_http.B3TraceIdHeader, "Bogus Value")
-				req.Header.Set(router_http.B3SpanIdHeader, "Span Value")
+				req.Header.Set(handlers.B3TraceIdHeader, "Bogus Value")
+				req.Header.Set(handlers.B3SpanIdHeader, "Span Value")
+				req.Header.Set(handlers.B3ParentSpanIdHeader, "Span parent Value")
 			})
 
+			It("doesn't overwrite the B3ParentSpanIdHeader", func() {
+				handler.ServeHTTP(resp, req, nextHandler)
+				Expect(req.Header.Get(handlers.B3ParentSpanIdHeader)).To(Equal("Span parent Value"))
+
+				Expect(nextCalled).To(BeTrue(), "Expected the next handler to be called.")
+			})
+
+			It("doesn't overwrite the B3SpanIdHeader", func() {
+				handler.ServeHTTP(resp, req, nextHandler)
+				Expect(req.Header.Get(handlers.B3SpanIdHeader)).To(Equal("Span Value"))
+
+				Expect(nextCalled).To(BeTrue(), "Expected the next handler to be called.")
+			})
 			It("doesn't overwrite the B3TraceIdHeader", func() {
 				handler.ServeHTTP(resp, req, nextHandler)
-				Expect(req.Header.Get(router_http.B3TraceIdHeader)).To(Equal("Bogus Value"))
-				Expect(req.Header.Get(router_http.B3SpanIdHeader)).To(MatchRegexp(b3_id_regex))
-				Expect(req.Header.Get(router_http.B3ParentSpanIdHeader)).To(Equal("Span Value"))
+				Expect(req.Header.Get(handlers.B3TraceIdHeader)).To(Equal("Bogus Value"))
+
+				Expect(nextCalled).To(BeTrue(), "Expected the next handler to be called.")
+			})
+		})
+		Context("with B3TraceIdHeader and B3SpanIdHeader already set", func() {
+			BeforeEach(func() {
+				req.Header.Set(handlers.B3TraceIdHeader, "Bogus Value")
+				req.Header.Set(handlers.B3SpanIdHeader, "Span Value")
+			})
+
+			It("doesn't overwrite the B3SpanIdHeader", func() {
+				handler.ServeHTTP(resp, req, nextHandler)
+				Expect(req.Header.Get(handlers.B3SpanIdHeader)).To(Equal("Span Value"))
+				Expect(req.Header.Get(handlers.B3ParentSpanIdHeader)).To(BeEmpty())
+				Expect(nextCalled).To(BeTrue(), "Expected the next handler to be called.")
+			})
+			It("doesn't overwrite the B3TraceIdHeader", func() {
+				handler.ServeHTTP(resp, req, nextHandler)
+				Expect(req.Header.Get(handlers.B3TraceIdHeader)).To(Equal("Bogus Value"))
 			})
 		})
 
 		Context("with only B3SpanIdHeader set", func() {
 			BeforeEach(func() {
-				req.Header.Set(router_http.B3SpanIdHeader, "Span Value")
+				req.Header.Set(handlers.B3SpanIdHeader, "Span Value")
 			})
 
 			It("adds the B3TraceIdHeader and overwrites the SpanId", func() {
 				handler.ServeHTTP(resp, req, nextHandler)
-				Expect(req.Header.Get(router_http.B3TraceIdHeader)).To(MatchRegexp(b3_id_regex))
-				Expect(req.Header.Get(router_http.B3SpanIdHeader)).To(MatchRegexp(b3_id_regex))
-				Expect(req.Header.Get(router_http.B3ParentSpanIdHeader)).To(BeEmpty())
+				Expect(req.Header.Get(handlers.B3TraceIdHeader)).To(MatchRegexp(b3_id_regex))
+				Expect(nextCalled).To(BeTrue(), "Expected the next handler to be called.")
+
 			})
 		})
 
 		Context("with only B3TraceIdHeader set", func() {
 			BeforeEach(func() {
-				req.Header.Set(router_http.B3TraceIdHeader, "Bogus Value")
+				req.Header.Set(handlers.B3TraceIdHeader, "Bogus Value")
 			})
 
 			It("overwrites the B3TraceIdHeader and adds a SpanId", func() {
 				handler.ServeHTTP(resp, req, nextHandler)
-				Expect(req.Header.Get(router_http.B3TraceIdHeader)).To(MatchRegexp(b3_id_regex))
-				Expect(req.Header.Get(router_http.B3SpanIdHeader)).To(MatchRegexp(b3_id_regex))
-				Expect(req.Header.Get(router_http.B3ParentSpanIdHeader)).To(BeEmpty())
+				Expect(req.Header.Get(handlers.B3TraceIdHeader)).To(MatchRegexp(b3_id_regex))
+				Expect(req.Header.Get(handlers.B3SpanIdHeader)).To(MatchRegexp(b3_id_regex))
+				Expect(req.Header.Get(handlers.B3ParentSpanIdHeader)).To(BeEmpty())
 			})
 		})
 
 		Context("when X-B3-* headers are already set to be logged", func() {
 			BeforeEach(func() {
-				newSlice := []string{router_http.B3TraceIdHeader, router_http.B3SpanIdHeader, router_http.B3ParentSpanIdHeader}
+				newSlice := []string{handlers.B3TraceIdHeader, handlers.B3SpanIdHeader, handlers.B3ParentSpanIdHeader}
 				headersToLog = &newSlice
 			})
 			It("adds zipkin headers to access log record", func() {
 				handler.ServeHTTP(resp, req, nextHandler)
-				Expect(*headersToLog).To(ContainElement(router_http.B3SpanIdHeader))
-				Expect(*headersToLog).To(ContainElement(router_http.B3TraceIdHeader))
-				Expect(*headersToLog).To(ContainElement(router_http.B3ParentSpanIdHeader))
+				Expect(*headersToLog).To(ContainElement(handlers.B3SpanIdHeader))
+				Expect(*headersToLog).To(ContainElement(handlers.B3TraceIdHeader))
+				Expect(*headersToLog).To(ContainElement(handlers.B3ParentSpanIdHeader))
 			})
 		})
 	})
@@ -125,28 +154,28 @@ var _ = Describe("Zipkin", func() {
 
 		It("doesn't set any headers", func() {
 			handler.ServeHTTP(resp, req, nextHandler)
-			Expect(req.Header.Get(router_http.B3SpanIdHeader)).To(BeEmpty())
-			Expect(req.Header.Get(router_http.B3TraceIdHeader)).To(BeEmpty())
-			Expect(req.Header.Get(router_http.B3ParentSpanIdHeader)).To(BeEmpty())
+			Expect(req.Header.Get(handlers.B3SpanIdHeader)).To(BeEmpty())
+			Expect(req.Header.Get(handlers.B3TraceIdHeader)).To(BeEmpty())
+			Expect(req.Header.Get(handlers.B3ParentSpanIdHeader)).To(BeEmpty())
 		})
 
 		It("does not add zipkin headers to access log record", func() {
 			handler.ServeHTTP(resp, req, nextHandler)
-			Expect(*headersToLog).NotTo(ContainElement(router_http.B3SpanIdHeader))
-			Expect(*headersToLog).NotTo(ContainElement(router_http.B3ParentSpanIdHeader))
-			Expect(*headersToLog).NotTo(ContainElement(router_http.B3TraceIdHeader))
+			Expect(*headersToLog).NotTo(ContainElement(handlers.B3SpanIdHeader))
+			Expect(*headersToLog).NotTo(ContainElement(handlers.B3ParentSpanIdHeader))
+			Expect(*headersToLog).NotTo(ContainElement(handlers.B3TraceIdHeader))
 		})
 
 		Context("when X-B3-* headers are already set to be logged", func() {
 			BeforeEach(func() {
-				newSlice := []string{router_http.B3TraceIdHeader, router_http.B3SpanIdHeader, router_http.B3ParentSpanIdHeader}
+				newSlice := []string{handlers.B3TraceIdHeader, handlers.B3SpanIdHeader, handlers.B3ParentSpanIdHeader}
 				headersToLog = &newSlice
 			})
 			It("adds zipkin headers to access log record", func() {
 				handler.ServeHTTP(resp, req, nextHandler)
-				Expect(*headersToLog).To(ContainElement(router_http.B3SpanIdHeader))
-				Expect(*headersToLog).To(ContainElement(router_http.B3ParentSpanIdHeader))
-				Expect(*headersToLog).To(ContainElement(router_http.B3TraceIdHeader))
+				Expect(*headersToLog).To(ContainElement(handlers.B3SpanIdHeader))
+				Expect(*headersToLog).To(ContainElement(handlers.B3ParentSpanIdHeader))
+				Expect(*headersToLog).To(ContainElement(handlers.B3TraceIdHeader))
 			})
 		})
 	})
