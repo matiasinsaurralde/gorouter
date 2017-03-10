@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
-	"strings"
+
+	"errors"
+
+	"fmt"
 
 	"code.cloudfoundry.org/gorouter/access_log/schema"
 	router_http "code.cloudfoundry.org/gorouter/common/http"
@@ -47,6 +48,15 @@ func (l *lookupHandler) handleMissingRoute(rw http.ResponseWriter, r *http.Reque
 	l.logger.Info("unknown-route")
 
 	rw.Header().Set("X-Cf-RouterError", "unknown_route")
+
+	//writeStatus(
+	//	rw,
+	//	http.StatusNotFound,
+	//	fmt.Sprintf("Requested route ('%s') does not exist.", r.Host),
+	//	r.Context().Value("AccessLogRecord"),
+	//	l.logger,
+	//)
+
 	code := http.StatusNotFound
 	body := fmt.Sprintf(
 		"%d %s: Requested route ('%s') does not exist.",
@@ -85,16 +95,4 @@ func (l *lookupHandler) lookup(r *http.Request) *route.Pool {
 	}
 
 	return l.registry.Lookup(uri)
-}
-
-func hostWithoutPort(req *http.Request) string {
-	host := req.Host
-
-	// Remove :<port>
-	pos := strings.Index(host, ":")
-	if pos >= 0 {
-		host = host[0:pos]
-	}
-
-	return host
 }

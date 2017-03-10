@@ -36,7 +36,7 @@ import (
 
 type connHandler func(*test_util.HttpConn)
 
-var _ = Describe("Proxy", func() {
+var _ = FDescribe("Proxy", func() {
 
 	It("responds to http/1.0 with path", func() {
 		ln := registerHandler(r, "test/my_path", func(conn *test_util.HttpConn) {
@@ -348,7 +348,7 @@ var _ = Describe("Proxy", func() {
 		Expect(body).To(Equal("404 Not Found: Requested route ('abcdefghijklmnopqrstuvwxyz.0123456789-ABCDEFGHIJKLMNOPQRSTUVW.XYZ') does not exist.\n"))
 	})
 
-	It("responds to misbehaving host with 502", func() {
+	FIt("responds to misbehaving host with 502", func() {
 		ln := registerHandler(r, "enfant-terrible", func(conn *test_util.HttpConn) {
 			conn.Close()
 		})
@@ -361,6 +361,8 @@ var _ = Describe("Proxy", func() {
 
 		resp, body := conn.ReadResponse()
 		Expect(resp.StatusCode).To(Equal(http.StatusBadGateway))
+		fmt.Println("RESPONSE HEADER: ", resp.Header)
+		fmt.Println("BODY", body)
 		Expect(resp.Header.Get("X-Cf-RouterError")).To(Equal("endpoint_failure"))
 		Expect(body).To(Equal("502 Bad Gateway: Registered endpoint failed to handle the request.\n"))
 	})
