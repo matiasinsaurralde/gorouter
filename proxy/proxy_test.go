@@ -673,7 +673,7 @@ var _ = Describe("Proxy", func() {
 		})
 	})
 
-	XIt("emits HTTP startstop events", func() {
+	It("emits HTTP startstop events", func() {
 		ln := registerHandlerWithInstanceId(r, "app", "", func(conn *test_util.HttpConn) {
 		}, "fake-instance-id")
 		defer ln.Close()
@@ -685,8 +685,6 @@ var _ = Describe("Proxy", func() {
 
 		req := test_util.NewRequest("GET", "app", "/", nil)
 		conn.WriteRequest(req)
-		requestId := req.Header.Get("X-Vcap-Request-Id")
-
 		findStartStopEvent := func() *events.HttpStartStop {
 			for _, event := range fakeEmitter.GetEvents() {
 				startStopEvent, ok := event.(*events.HttpStartStop)
@@ -697,8 +695,10 @@ var _ = Describe("Proxy", func() {
 
 			return nil
 		}
+		recReq, _ := conn.ReadRequest()
 
 		Eventually(findStartStopEvent).ShouldNot(BeNil())
+		requestId := recReq.Header.Get("X-Vcap-Request-Id")
 
 		Expect(findStartStopEvent().RequestId.String()).To(Equal(requestId))
 		conn.ReadResponse()
