@@ -328,6 +328,24 @@ var _ = Describe("ProxyRoundTripper", func() {
 			})
 		})
 
+		Context("when the request context contains a Route Service URL", func() {
+			var routeServiceURL string
+			BeforeEach(func() {
+				routeServiceURL = "foo.com"
+
+				req = req.WithContext(context.WithValue(req.Context(), "RouteServiceURL", routeServiceURL))
+				transport.RoundTripStub = func(req *http.Request) (*http.Response, error) {
+					Expect(req.URL.Host).To(Equal(routeServiceURL))
+					return nil, nil
+				}
+			})
+
+			It("makes requests to the route service", func() {
+				_, err := proxyRoundTripper.RoundTrip(req)
+				Expect(err).ToNot(HaveOccurred())
+			})
+		})
+
 		It("can cancel requests", func() {
 			proxyRoundTripper.CancelRequest(req)
 			Expect(transport.CancelRequestCallCount()).To(Equal(1))

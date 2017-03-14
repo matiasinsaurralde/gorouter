@@ -91,25 +91,29 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 	}
 	accessLogRecord := alr.(*schema.AccessLogRecord)
 
+	var routeServiceURL string
+	rsurl := request.Context().Value("RouteServiceURL")
+	if rsurl != nil {
+		routeServiceURL = rsurl.(string)
+	}
+
 	routePool := rp.(*route.Pool)
 	stickyEndpointID := getStickySession(request)
 	iter := routePool.Endpoints(rt.defaultLoadBalance, stickyEndpointID)
 	for retry := 0; retry < handler.MaxRetries; retry++ {
-		endpoint, err = rt.selectEndpoint(iter, request)
-		if err != nil {
-			break
+
+		if routeServiceURL == "" {
+			endpoint, err = rt.selectEndpoint(iter, request)
+			if err != nil {
+				break
+			}
+			res, err = rt.backendRoundTrip(request, endpoint, iter)
+		} else {
+			rt.logger.Debug("route-service")
+			endpoint = newRouteServiceEndpoint()
+			request.URL.Host = routeServiceURL
+			res, err = rt.transport.RoundTrip(request)
 		}
-
-		rt.setupRequest(request, endpoint)
-
-		// increment connection stats
-		iter.PreRequest(endpoint)
-
-		rt.combinedReporter.CaptureRoutingRequest(endpoint)
-		res, err = rt.transport.RoundTrip(request)
-
-		// decrement connection stats
-		iter.PostRequest(endpoint)
 
 		if err == nil || !retryableError(err) {
 			break
@@ -157,6 +161,24 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 
 func (rt *roundTripper) CancelRequest(request *http.Request) {
 	rt.transport.CancelRequest(request)
+}
+
+func (rt *roundTripper) backendRoundTrip(
+	request *http.Request,
+	endpoint *route.Endpoint,
+	iter route.EndpointIterator,
+) (*http.Response, error) {
+	rt.setupRequest(request, endpoint)
+
+	// increment connection stats
+	iter.PreRequest(endpoint)
+
+	rt.combinedReporter.CaptureRoutingRequest(endpoint)
+	res, err := rt.transport.RoundTrip(request)
+
+	// decrement connection stats
+	iter.PostRequest(endpoint)
+	return res, err
 }
 
 func (rt *roundTripper) selectEndpoint(iter route.EndpointIterator, request *http.Request) (*route.Endpoint, error) {
@@ -245,8 +267,8 @@ func retryableError(err error) bool {
 	return false
 }
 
-// func newRouteServiceEndpoint() *route.Endpoint {
-// 	return &route.Endpoint{
-// 		Tags: map[string]string{},
-// 	}
-// }
+func newRouteServiceEndpoint() *route.Endpoint {
+	return &route.Endpoint{
+		Tags: map[string]string{},
+	}
+}

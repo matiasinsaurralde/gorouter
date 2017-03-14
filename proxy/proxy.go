@@ -114,6 +114,7 @@ func NewProxy(
 	n.Use(zipkinHandler)
 	n.Use(handlers.NewProtocolCheck(logger))
 	n.Use(handlers.NewLookup(registry, reporter, logger))
+	n.Use(handlers.NewRouteService(reporter, routeServiceConfig, logger))
 	n.Use(p)
 	n.UseHandler(rproxy)
 

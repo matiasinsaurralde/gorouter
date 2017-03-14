@@ -109,7 +109,7 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 			req.Header.Set(routeservice.RouteServiceMetadata, routeServiceArgs.Metadata)
 			req.Header.Set(routeservice.RouteServiceForwardedURL, routeServiceArgs.ForwardedURL)
 
-			req = req.WithContext(context.WithValue(req.Context(), "RouteServiceURL", routeServiceArgs.ParsedUrl))
+			req = req.WithContext(context.WithValue(req.Context(), "RouteServiceURL", routeServiceArgs.ParsedUrl.Host))
 		}
 	}
 
