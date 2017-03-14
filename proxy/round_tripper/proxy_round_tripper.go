@@ -12,6 +12,7 @@ import (
 	router_http "code.cloudfoundry.org/gorouter/common/http"
 	"code.cloudfoundry.org/gorouter/handlers"
 	"code.cloudfoundry.org/gorouter/logger"
+	"code.cloudfoundry.org/gorouter/metrics"
 	"code.cloudfoundry.org/gorouter/proxy/handler"
 	"code.cloudfoundry.org/gorouter/proxy/utils"
 	"code.cloudfoundry.org/gorouter/route"
@@ -37,6 +38,7 @@ func NewProxyRoundTripper(
 	traceKey string,
 	routerIP string,
 	defaultLoadBalance string,
+	combinedReporter metrics.CombinedReporter,
 ) ProxyRoundTripper {
 	return &roundTripper{
 		logger:             logger,
@@ -44,6 +46,7 @@ func NewProxyRoundTripper(
 		traceKey:           traceKey,
 		routerIP:           routerIP,
 		defaultLoadBalance: defaultLoadBalance,
+		combinedReporter:   combinedReporter,
 	}
 }
 
@@ -53,6 +56,7 @@ type roundTripper struct {
 	traceKey           string
 	routerIP           string
 	defaultLoadBalance string
+	combinedReporter   metrics.CombinedReporter
 }
 
 func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -82,6 +86,7 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 	if alr == nil {
 		return nil, errors.New("AccessLogRecord not set on context")
 	}
+	accessLogRecord := alr.(*schema.AccessLogRecord)
 
 	routePool := rp.(*route.Pool)
 	stickyEndpointId := getStickySession(request)
@@ -97,6 +102,7 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 		// increment connection stats
 		iter.PreRequest(endpoint)
 
+		rt.combinedReporter.CaptureRoutingRequest(endpoint)
 		res, err = rt.transport.RoundTrip(request)
 
 		// decrement connection stats
@@ -109,11 +115,12 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 		rt.reportError(iter, err)
 	}
 
+	accessLogRecord.RouteEndpoint = endpoint
+
 	if err != nil {
 		responseWriter := rw.(utils.ProxyResponseWriter)
 		responseWriter.Header().Set(router_http.CfRouterError, "endpoint_failure")
 
-		accessLogRecord := alr.(*schema.AccessLogRecord)
 		accessLogRecord.StatusCode = http.StatusBadGateway
 
 		rt.logger.Info("status", zap.String("body", BadGatewayMessage))
@@ -122,6 +129,8 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 		responseWriter.Header().Del("Connection")
 
 		rt.logger.Error("endpoint-failed", zap.Error(err))
+
+		rt.combinedReporter.CaptureBadGateway()
 
 		responseWriter.Done()
 

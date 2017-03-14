@@ -14,6 +14,7 @@ import (
 	"code.cloudfoundry.org/gorouter/access_log/schema"
 	"code.cloudfoundry.org/gorouter/handlers"
 	"code.cloudfoundry.org/gorouter/logger"
+	"code.cloudfoundry.org/gorouter/metrics/fakes"
 	"code.cloudfoundry.org/gorouter/proxy/handler"
 	"code.cloudfoundry.org/gorouter/proxy/round_tripper"
 	roundtripperfakes "code.cloudfoundry.org/gorouter/proxy/round_tripper/fakes"
@@ -41,6 +42,7 @@ var _ = Describe("ProxyRoundTripper", func() {
 			resp              *httptest.ResponseRecorder
 			alr               *schema.AccessLogRecord
 			routerIP          string
+			combinedReporter  *fakes.FakeCombinedReporter
 
 			endpoint *route.Endpoint
 
@@ -76,7 +78,9 @@ var _ = Describe("ProxyRoundTripper", func() {
 			added := routePool.Put(endpoint)
 			Expect(added).To(BeTrue())
 
-			proxyRoundTripper = round_tripper.NewProxyRoundTripper(transport, logger, "my_trace_key", routerIP, "")
+			combinedReporter = new(fakes.FakeCombinedReporter)
+
+			proxyRoundTripper = round_tripper.NewProxyRoundTripper(transport, logger, "my_trace_key", routerIP, "", combinedReporter)
 		})
 
 		Context("when route pool is not set on the request context", func() {
@@ -170,7 +174,7 @@ var _ = Describe("ProxyRoundTripper", func() {
 				}
 			})
 
-			It("retries 3 times", func() {
+			It("retries 3 times and returns status bad gateway", func() {
 				_, err := proxyRoundTripper.RoundTrip(req)
 				Expect(err).To(MatchError(dialError))
 				Expect(retryCount).To(Equal(3))
@@ -181,6 +185,24 @@ var _ = Describe("ProxyRoundTripper", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(string(bodyBytes)).To(ContainSubstring(round_tripper.BadGatewayMessage))
 				Expect(alr.StatusCode).To(Equal(http.StatusBadGateway))
+				Expect(alr.RouteEndpoint).To(Equal(endpoint))
+			})
+
+			It("captures each routing request to the backend", func() {
+				_, err := proxyRoundTripper.RoundTrip(req)
+				Expect(err).To(MatchError(dialError))
+
+				Expect(combinedReporter.CaptureRoutingRequestCallCount()).To(Equal(3))
+				for i := 0; i < 3; i++ {
+					Expect(combinedReporter.CaptureRoutingRequestArgsForCall(i)).To(Equal(endpoint))
+				}
+			})
+
+			It("captures bad gateway response in the metrics reporter", func() {
+				_, err := proxyRoundTripper.RoundTrip(req)
+				Expect(err).To(MatchError(dialError))
+
+				Expect(combinedReporter.CaptureBadGatewayCallCount()).To(Equal(1))
 			})
 		})
 
@@ -209,6 +231,24 @@ var _ = Describe("ProxyRoundTripper", func() {
 				Expect(string(bodyBytes)).To(ContainSubstring(round_tripper.BadGatewayMessage))
 
 				Expect(alr.StatusCode).To(Equal(http.StatusBadGateway))
+				Expect(alr.RouteEndpoint).To(Equal(endpoint))
+			})
+
+			It("captures each routing request to the backend", func() {
+				_, err := proxyRoundTripper.RoundTrip(req)
+				Expect(err).To(MatchError(connResetError))
+
+				Expect(combinedReporter.CaptureRoutingRequestCallCount()).To(Equal(3))
+				for i := 0; i < 3; i++ {
+					Expect(combinedReporter.CaptureRoutingRequestArgsForCall(i)).To(Equal(endpoint))
+				}
+			})
+
+			It("captures bad gateway response in the metrics reporter", func() {
+				_, err := proxyRoundTripper.RoundTrip(req)
+				Expect(err).To(MatchError(connResetError))
+
+				Expect(combinedReporter.CaptureBadGatewayCallCount()).To(Equal(1))
 			})
 		})
 
@@ -218,7 +258,7 @@ var _ = Describe("ProxyRoundTripper", func() {
 				Expect(removed).To(BeTrue())
 			})
 
-			It("returns a 502 BadGateway error", func() {
+			It("returns a 502 Bad Gateway response", func() {
 				backendRes, err := proxyRoundTripper.RoundTrip(req)
 				Expect(err).To(HaveOccurred())
 				Expect(backendRes).To(BeNil())
@@ -230,6 +270,21 @@ var _ = Describe("ProxyRoundTripper", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(string(bodyBytes)).To(ContainSubstring(round_tripper.BadGatewayMessage))
 				Expect(alr.StatusCode).To(Equal(http.StatusBadGateway))
+				Expect(alr.RouteEndpoint).To(BeNil())
+			})
+
+			It("does not capture any routing requests to the backend", func() {
+				_, err := proxyRoundTripper.RoundTrip(req)
+				Expect(err).To(Equal(handler.NoEndpointsAvailable))
+
+				Expect(combinedReporter.CaptureRoutingRequestCallCount()).To(Equal(0))
+			})
+
+			It("captures bad gateway response in the metrics reporter", func() {
+				_, err := proxyRoundTripper.RoundTrip(req)
+				Expect(err).To(Equal(handler.NoEndpointsAvailable))
+
+				Expect(combinedReporter.CaptureBadGatewayCallCount()).To(Equal(1))
 			})
 		})
 
@@ -253,6 +308,20 @@ var _ = Describe("ProxyRoundTripper", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(retryCount).To(Equal(2))
 				Expect(resp.Code).To(Equal(http.StatusOK))
+
+				Expect(combinedReporter.CaptureBadGatewayCallCount()).To(Equal(0))
+
+				Expect(alr.RouteEndpoint).To(Equal(endpoint))
+			})
+
+			It("captures each routing request to the backend", func() {
+				_, err := proxyRoundTripper.RoundTrip(req)
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(combinedReporter.CaptureRoutingRequestCallCount()).To(Equal(2))
+				for i := 0; i < 2; i++ {
+					Expect(combinedReporter.CaptureRoutingRequestArgsForCall(i)).To(Equal(endpoint))
+				}
 			})
 		})
 

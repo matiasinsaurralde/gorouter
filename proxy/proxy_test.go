@@ -387,6 +387,45 @@ var _ = Describe("Proxy", func() {
 		Expect(resp.Header.Get(router_http.VcapRouterHeader)).To(Equal(conf.Ip))
 	})
 
+	It("captures the routing response", func() {
+		ln := registerHandler(r, "reporter-test", func(conn *test_util.HttpConn) {
+			_, err := http.ReadRequest(conn.Reader)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp := test_util.NewResponse(http.StatusOK)
+			conn.WriteResponse(resp)
+			conn.Close()
+		})
+		defer ln.Close()
+
+		conn := dialProxy(proxyServer)
+
+		req := test_util.NewRequest("GET", "reporter-test", "/", nil)
+		conn.WriteRequest(req)
+
+		resp, _ := conn.ReadResponse()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		Expect(fakeReporter.CaptureBadGatewayCallCount()).To(Equal(0))
+
+		Expect(fakeReporter.CaptureRoutingResponseCallCount()).To(Equal(1))
+		capturedRespCode := fakeReporter.CaptureRoutingResponseArgsForCall(0)
+		Expect(capturedRespCode).To(Equal(http.StatusOK))
+
+		Expect(fakeReporter.CaptureRoutingResponseLatencyCallCount()).To(Equal(1))
+		capturedEndpoint, capturedRespCode, startTime, latency := fakeReporter.CaptureRoutingResponseLatencyArgsForCall(0)
+		Expect(capturedEndpoint).ToNot(BeNil())
+		Expect(capturedEndpoint.ApplicationId).To(Equal(""))
+		Expect(capturedEndpoint.PrivateInstanceId).To(Equal(""))
+		Expect(capturedEndpoint.PrivateInstanceIndex).To(Equal("2"))
+		Expect(capturedRespCode).To(Equal(http.StatusOK))
+		Expect(startTime).To(BeTemporally("~", time.Now(), 100*time.Millisecond))
+		Expect(latency).To(BeNumerically(">", 0))
+
+		Expect(fakeReporter.CaptureRoutingRequestCallCount()).To(Equal(1))
+		Expect(fakeReporter.CaptureRoutingRequestArgsForCall(0)).To(Equal(capturedEndpoint))
+	})
+
 	It("trace headers not added on incorrect TraceKey", func() {
 		ln := registerHandler(r, "trace-test", func(conn *test_util.HttpConn) {
 			_, err := http.ReadRequest(conn.Reader)
@@ -1557,7 +1596,7 @@ var _ = Describe("Proxy", func() {
 			Expect(res.StatusCode).To(Equal(http.StatusBadGateway))
 		})
 
-		It("does not capture routing response", func() {
+		It("captures bad gateway but does not capture routing response", func() {
 			ln := registerHandler(r, "nil-endpoint", func(conn *test_util.HttpConn) {
 				conn.CheckLine("GET / HTTP/1.1")
 				resp := test_util.NewResponse(http.StatusOK)
@@ -1576,6 +1615,7 @@ var _ = Describe("Proxy", func() {
 			Expect(res.StatusCode).To(Equal(http.StatusBadGateway))
 			Expect(fakeReporter.CaptureBadGatewayCallCount()).To(Equal(1))
 			Expect(fakeReporter.CaptureRoutingResponseCallCount()).To(Equal(0))
+			Expect(fakeReporter.CaptureRoutingResponseLatencyCallCount()).To(Equal(0))
 		})
 	})
 })
