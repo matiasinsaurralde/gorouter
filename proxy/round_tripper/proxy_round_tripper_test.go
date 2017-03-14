@@ -80,7 +80,10 @@ var _ = Describe("ProxyRoundTripper", func() {
 
 			combinedReporter = new(fakes.FakeCombinedReporter)
 
-			proxyRoundTripper = round_tripper.NewProxyRoundTripper(transport, logger, "my_trace_key", routerIP, "", combinedReporter)
+			proxyRoundTripper = round_tripper.NewProxyRoundTripper(
+				transport, logger, "my_trace_key", routerIP, "",
+				combinedReporter, false,
+			)
 		})
 
 		Context("when route pool is not set on the request context", func() {

@@ -39,6 +39,7 @@ func NewProxyRoundTripper(
 	routerIP string,
 	defaultLoadBalance string,
 	combinedReporter metrics.CombinedReporter,
+	secureCookies bool,
 ) ProxyRoundTripper {
 	return &roundTripper{
 		logger:             logger,
@@ -47,6 +48,7 @@ func NewProxyRoundTripper(
 		routerIP:           routerIP,
 		defaultLoadBalance: defaultLoadBalance,
 		combinedReporter:   combinedReporter,
+		secureCookies:      secureCookies,
 	}
 }
 
@@ -57,6 +59,7 @@ type roundTripper struct {
 	routerIP           string
 	defaultLoadBalance string
 	combinedReporter   metrics.CombinedReporter
+	secureCookies      bool
 }
 
 func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -89,8 +92,8 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 	accessLogRecord := alr.(*schema.AccessLogRecord)
 
 	routePool := rp.(*route.Pool)
-	stickyEndpointId := getStickySession(request)
-	iter := routePool.Endpoints(rt.defaultLoadBalance, stickyEndpointId)
+	stickyEndpointID := getStickySession(request)
+	iter := routePool.Endpoints(rt.defaultLoadBalance, stickyEndpointID)
 	for retry := 0; retry < handler.MaxRetries; retry++ {
 		endpoint, err = rt.selectEndpoint(iter, request)
 		if err != nil {
@@ -145,6 +148,10 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 		}
 	}
 
+	if res != nil && endpoint.PrivateInstanceId != "" {
+		setupStickySession(res, endpoint, stickyEndpointID, rt.secureCookies, routePool.ContextPath())
+	}
+
 	return res, nil
 }
 
@@ -172,6 +179,52 @@ func (rt *roundTripper) setupRequest(request *http.Request, endpoint *route.Endp
 func (rt *roundTripper) reportError(iter route.EndpointIterator, err error) {
 	iter.EndpointFailed()
 	rt.logger.Error("backend-endpoint-failed", zap.Error(err))
+}
+
+func setupStickySession(
+	response *http.Response,
+	endpoint *route.Endpoint,
+	originalEndpointId string,
+	secureCookies bool,
+	path string,
+) {
+	secure := false
+	maxAge := 0
+
+	// did the endpoint change?
+	sticky := originalEndpointId != "" && originalEndpointId != endpoint.PrivateInstanceId
+
+	for _, v := range response.Cookies() {
+		if v.Name == StickyCookieKey {
+			sticky = true
+			if v.MaxAge < 0 {
+				maxAge = v.MaxAge
+			}
+			secure = v.Secure
+			break
+		}
+	}
+
+	if sticky {
+		// right now secure attribute would as equal to the JSESSION ID cookie (if present),
+		// but override if set to true in config
+		if secureCookies {
+			secure = true
+		}
+
+		cookie := &http.Cookie{
+			Name:     VcapCookieId,
+			Value:    endpoint.PrivateInstanceId,
+			Path:     path,
+			MaxAge:   maxAge,
+			HttpOnly: true,
+			Secure:   secure,
+		}
+
+		if v := cookie.String(); v != "" {
+			response.Header.Add("Set-Cookie", v)
+		}
+	}
 }
 
 func getStickySession(request *http.Request) string {
