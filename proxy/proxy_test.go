@@ -24,8 +24,6 @@ import (
 	"code.cloudfoundry.org/gorouter/route"
 	"code.cloudfoundry.org/gorouter/test_util"
 	"code.cloudfoundry.org/routing-api/models"
-	"github.com/cloudfoundry/dropsonde"
-	"github.com/cloudfoundry/dropsonde/emitter/fake"
 	"github.com/cloudfoundry/dropsonde/factories"
 	"github.com/cloudfoundry/sonde-go/events"
 	uuid "github.com/nu7hatch/gouuid"
@@ -36,7 +34,7 @@ import (
 
 type connHandler func(*test_util.HttpConn)
 
-var _ = FDescribe("Proxy", func() {
+var _ = Describe("Proxy", func() {
 
 	It("responds to http/1.0 with path", func() {
 		ln := registerHandler(r, "test/my_path", func(conn *test_util.HttpConn) {
@@ -123,8 +121,8 @@ var _ = FDescribe("Proxy", func() {
 
 		resp, _ := x.ReadResponse()
 		h, present := resp.Header["Content-Type"]
-		Expect(present).To(BeFalse())
 		Expect(h).To(BeNil())
+		Expect(present).To(BeFalse())
 		Expect(responseContains(resp, "Content-Type:")).To(BeFalse())
 	})
 
@@ -348,7 +346,7 @@ var _ = FDescribe("Proxy", func() {
 		Expect(body).To(Equal("404 Not Found: Requested route ('abcdefghijklmnopqrstuvwxyz.0123456789-ABCDEFGHIJKLMNOPQRSTUVW.XYZ') does not exist.\n"))
 	})
 
-	FIt("responds to misbehaving host with 502", func() {
+	It("responds to misbehaving host with 502", func() {
 		ln := registerHandler(r, "enfant-terrible", func(conn *test_util.HttpConn) {
 			conn.Close()
 		})
@@ -361,8 +359,6 @@ var _ = FDescribe("Proxy", func() {
 
 		resp, body := conn.ReadResponse()
 		Expect(resp.StatusCode).To(Equal(http.StatusBadGateway))
-		fmt.Println("RESPONSE HEADER: ", resp.Header)
-		fmt.Println("BODY", body)
 		Expect(resp.Header.Get("X-Cf-RouterError")).To(Equal("endpoint_failure"))
 		Expect(body).To(Equal("502 Bad Gateway: Registered endpoint failed to handle the request.\n"))
 	})
@@ -692,15 +688,12 @@ var _ = FDescribe("Proxy", func() {
 
 		conn := dialProxy(proxyServer)
 
-		fakeEmitter := fake.NewFakeEventEmitter("fake")
-		dropsonde.InitializeWithEmitter(fakeEmitter)
-
 		req := test_util.NewRequest("GET", "app", "/", nil)
 
 		conn.WriteRequest(req)
 		findStartStopEvent := func() *events.HttpStartStop {
-			for _, envelope := range fakeEmitter.GetEvents() {
-				startStopEvent, ok := envelope.(*events.HttpStartStop)
+			for _, ev := range fakeEmitter.GetEvents() {
+				startStopEvent, ok := ev.(*events.HttpStartStop)
 				if ok {
 					return startStopEvent
 				}

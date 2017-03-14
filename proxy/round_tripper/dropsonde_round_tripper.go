@@ -6,7 +6,7 @@ import (
 	"github.com/cloudfoundry/dropsonde"
 )
 
-func NewDropsondeRoundTripper(p RoundTripper) RoundTripper {
+func NewDropsondeRoundTripper(p ProxyRoundTripper) ProxyRoundTripper {
 	return &dropsondeRoundTripper{
 		p: p,
 		d: dropsonde.InstrumentedRoundTripper(p),
@@ -14,7 +14,7 @@ func NewDropsondeRoundTripper(p RoundTripper) RoundTripper {
 }
 
 type dropsondeRoundTripper struct {
-	p RoundTripper
+	p ProxyRoundTripper
 	d http.RoundTripper
 }
 

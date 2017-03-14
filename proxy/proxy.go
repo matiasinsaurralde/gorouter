@@ -23,10 +23,8 @@ import (
 	"code.cloudfoundry.org/gorouter/registry"
 	"code.cloudfoundry.org/gorouter/route"
 	"code.cloudfoundry.org/gorouter/routeservice"
-	"github.com/stretchr/testify/http"
 	"github.com/uber-go/zap"
 	"github.com/urfave/negroni"
-	"golang.org/x/tools/go/gcimporter15/testdata"
 )
 
 const (
@@ -36,22 +34,6 @@ const (
 
 type Proxy interface {
 	ServeHTTP(responseWriter http.ResponseWriter, request *http.Request)
-}
-
-type proxyHandler struct {
-	handlers *negroni.Negroni
-}
-
-func (p *proxyHandler) ServeHTTP(responseWriter http.ResponseWriter, request *http.Request) {
-	p.handlers.ServeHTTP(responseWriter, request)
-}
-
-type proxyWriterHandler struct{}
-
-// ServeHTTP wraps the responseWriter in a ProxyResponseWriter
-func (p *proxyWriterHandler) ServeHTTP(responseWriter http.ResponseWriter, request *http.Request, next http.HandlerFunc) {
-	proxyWriter := utils.NewProxyResponseWriter(responseWriter)
-	next(proxyWriter, request)
 }
 
 type proxy struct {
@@ -114,15 +96,16 @@ func NewProxy(
 	}
 
 	rproxy := &ReverseProxy{
-		Director:      p.setupProxyRequest,
-		Transport:     p.proxyRoundTripper(httpTransport),
-		FlushInterval: 50 * time.Millisecond,
-		BufferPool:    p.bufferPool,
+		Director:       p.setupProxyRequest,
+		Transport:      p.proxyRoundTripper(httpTransport),
+		FlushInterval:  50 * time.Millisecond,
+		BufferPool:     p.bufferPool,
+		ModifyResponse: p.modifyResponse,
 	}
 
 	zipkinHandler := handlers.NewZipkin(c.Tracing.EnableZipkin, c.ExtraHeadersToLog, logger)
 	n := negroni.New()
-	n.Use(&proxyWriterHandler{})
+	n.Use(handlers.NewProxyWriter())
 	n.Use(handlers.NewsetVcapRequestIdHeader(logger))
 	n.Use(handlers.NewAccessLog(accessLogger, zipkinHandler.HeadersToLog()))
 	n.Use(handlers.NewProxyHealthcheck(c.HealthCheckUserAgent, p.heartbeatOK, logger))
@@ -130,13 +113,9 @@ func NewProxy(
 	n.Use(handlers.NewProtocolCheck(logger))
 	n.Use(handlers.NewLookup(registry, reporter, logger))
 	n.Use(p)
-	n.Use(rproxy)
+	n.UseHandler(rproxy)
 
-	handlers := &proxyHandler{
-		handlers: n,
-	}
-
-	return handlers
+	return n
 }
 
 func hostWithoutPort(req *http.Request) string {
@@ -151,8 +130,11 @@ func hostWithoutPort(req *http.Request) string {
 	return host
 }
 
-func (p *proxy) proxyRoundTripper(transport round_tripper.RoundTripper) round_tripper.RoundTripper {
-	return round_tripper.NewProxyRoundTripper(round_tripper.NewDropsondeRoundTripper(transport), p.logger, p.defaultLoadBalance)
+func (p *proxy) proxyRoundTripper(transport round_tripper.ProxyRoundTripper) round_tripper.ProxyRoundTripper {
+	return round_tripper.NewProxyRoundTripper(
+		round_tripper.NewDropsondeRoundTripper(transport),
+		p.logger, p.traceKey, p.ip, p.defaultLoadBalance,
+	)
 }
 
 type bufferPool struct {
@@ -222,25 +204,29 @@ func (p *proxy) ServeHTTP(responseWriter http.ResponseWriter, request *http.Requ
 	next(responseWriter, request)
 }
 
-func (p *proxy) setupProxyRequest(source *http.Request, target *http.Request) {
+func (p *proxy) setupProxyRequest(target *http.Request) {
 	if p.forceForwardedProtoHttps {
 		target.Header.Set("X-Forwarded-Proto", "https")
-	} else if source.Header.Get("X-Forwarded-Proto") == "" {
+	} else if target.Header.Get("X-Forwarded-Proto") == "" {
 		scheme := "http"
-		if source.TLS != nil {
+		if target.TLS != nil {
 			scheme = "https"
 		}
 		target.Header.Set("X-Forwarded-Proto", scheme)
 	}
 
 	target.URL.Scheme = "http"
-	target.URL.Host = source.Host
-	target.URL.Opaque = source.RequestURI
+	target.URL.Host = target.Host
+	target.URL.Opaque = target.RequestURI
 	target.URL.RawQuery = ""
 	target.URL.ForceQuery = false
 
-	handler.SetRequestXRequestStart(source)
+	handler.SetRequestXRequestStart(target)
 	target.Header.Del(router_http.CfAppInstance)
+}
+
+func (p *proxy) modifyResponse(backendResp *http.Response) error {
+	return nil
 }
 
 type wrappedIterator struct {
