@@ -16,6 +16,7 @@ import (
 	"code.cloudfoundry.org/localip"
 	"github.com/nats-io/nats"
 	. "github.com/onsi/ginkgo"
+	gConfig "github.com/onsi/ginkgo/config"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gbytes"
 	. "github.com/onsi/gomega/gexec"
@@ -698,6 +699,7 @@ var _ = Describe("Router Integration", func() {
 	Context("when the routing api is enabled", func() {
 		var (
 			config         *config.Config
+			server         *http.Server
 			uaaTlsListener net.Listener
 			routingApi     *httptest.Server
 			cfgFile        string
@@ -710,11 +712,29 @@ var _ = Describe("Router Integration", func() {
 			cfgFile = filepath.Join(tmpdir, "config.yml")
 			config = createConfig(cfgFile, statusPort, proxyPort, defaultPruneInterval, defaultPruneThreshold, 0, false, natsPort)
 
-			routingApi = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.HandleFunc("/routing/v1/routes", func(w http.ResponseWriter, r *http.Request) {
 				jsonBytes := []byte(`[{"route":"foo.com","port":65340,"ip":"1.2.3.4","ttl":60,"log_guid":"foo-guid"}]`)
 				w.Write(jsonBytes)
-			}))
-			config.RoutingApi.Uri, config.RoutingApi.Port = uriAndPort(routingApi.URL)
+			})
+
+			http.HandleFunc("/routing/v1/router_groups", func(w http.ResponseWriter, r *http.Request) {
+				jsonBytes := []byte(`[{
+"guid": "abc123",
+"name": "default-tcp",
+"reservable_ports":"1024-65535",
+"type": "tcp"
+}]`)
+				w.Write(jsonBytes)
+			})
+			addr := fmt.Sprintf("localhost:%d", 3738+uint16(gConfig.GinkgoConfig.ParallelNode))
+			var server *http.Server
+			go func() {
+				server = &http.Server{Addr: addr}
+
+				server.ListenAndServe()
+			}()
+
+			config.RoutingApi.Uri, config.RoutingApi.Port = uriAndPort(addr)
 
 		})
 
@@ -786,6 +806,31 @@ var _ = Describe("Router Integration", func() {
 				session, err := Start(gorouterCmd, GinkgoWriter, GinkgoWriter)
 				Expect(err).ToNot(HaveOccurred())
 				Eventually(session, 30*time.Second).Should(Say("tls-not-enabled"))
+				Eventually(session, 5*time.Second).Should(Exit(1))
+			})
+		})
+
+		Context("when given a valid router group", func() {
+			It("does not exit", func() {
+				config.RouterGroupName = "valid_router_group"
+				writeConfig(config, cfgFile)
+
+				gorouterCmd := exec.Command(gorouterPath, "-c", cfgFile)
+				session, err := Start(gorouterCmd, GinkgoWriter, GinkgoWriter)
+				Expect(err).To(HaveOccurred())
+				Consistently(session, 5*time.Second).ShouldNot(Exit(1))
+			})
+		})
+
+		Context("when given an invalid router group", func() {
+			It("does exit with status 1", func() {
+				config.RouterGroupName = "invalid_router_group"
+				writeConfig(config, cfgFile)
+
+				gorouterCmd := exec.Command(gorouterPath, "-c", cfgFile)
+				session, err := Start(gorouterCmd, GinkgoWriter, GinkgoWriter)
+				Expect(err).ToNot(HaveOccurred())
+				Eventually(session, 30*time.Second).Should(Say("invalid-router-group"))
 				Eventually(session, 5*time.Second).Should(Exit(1))
 			})
 		})
