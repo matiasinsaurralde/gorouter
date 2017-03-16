@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"code.cloudfoundry.org/gorouter/logger"
-	"code.cloudfoundry.org/gorouter/metrics"
 	"code.cloudfoundry.org/gorouter/routeservice"
 	"github.com/uber-go/zap"
 	"github.com/urfave/negroni"
@@ -15,17 +14,15 @@ import (
 )
 
 type routeService struct {
-	reporter metrics.CombinedReporter
-	config   *routeservice.RouteServiceConfig
-	logger   logger.Logger
+	config *routeservice.RouteServiceConfig
+	logger logger.Logger
 }
 
 // NewRouteService creates a handler responsible for handling route services
-func NewRouteService(rep metrics.CombinedReporter, config *routeservice.RouteServiceConfig, logger logger.Logger) negroni.Handler {
+func NewRouteService(config *routeservice.RouteServiceConfig, logger logger.Logger) negroni.Handler {
 	return &routeService{
-		reporter: rep,
-		config:   config,
-		logger:   logger,
+		config: config,
+		logger: logger,
 	}
 }
 
@@ -68,11 +65,11 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 			recommendedScheme = "http"
 		}
 
-		forwardedUrlRaw := recommendedScheme + "://" + hostWithoutPort(req) + req.RequestURI
+		forwardedURLRaw := recommendedScheme + "://" + hostWithoutPort(req) + req.RequestURI
 		if hasBeenToRouteService(routeServiceUrl, rsSignature) {
 			// A request from a route service destined for a backend instances
 			routeServiceArgs.URLString = routeServiceUrl
-			err := r.config.ValidateSignature(&req.Header, forwardedUrlRaw)
+			err := r.config.ValidateSignature(&req.Header, forwardedURLRaw)
 			if err != nil {
 				r.logger.Error("signature-validation-failed", zap.Error(err))
 
@@ -92,7 +89,7 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 		} else {
 			var err error
 			// should not hardcode http, will be addressed by #100982038
-			routeServiceArgs, err = r.config.Request(routeServiceUrl, forwardedUrlRaw)
+			routeServiceArgs, err = r.config.Request(routeServiceUrl, forwardedURLRaw)
 			if err != nil {
 				r.logger.Error("route-service-failed", zap.Error(err))
 
@@ -109,7 +106,7 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 			req.Header.Set(routeservice.RouteServiceMetadata, routeServiceArgs.Metadata)
 			req.Header.Set(routeservice.RouteServiceForwardedURL, routeServiceArgs.ForwardedURL)
 
-			req = req.WithContext(context.WithValue(req.Context(), "RouteServiceURL", routeServiceArgs.ParsedUrl.Host))
+			req = req.WithContext(context.WithValue(req.Context(), RouteServiceURLCtxKey, routeServiceArgs.ParsedUrl))
 		}
 	}
 

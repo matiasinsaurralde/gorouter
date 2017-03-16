@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 
 	"github.com/uber-go/zap"
 
@@ -91,35 +92,52 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 	}
 	accessLogRecord := alr.(*schema.AccessLogRecord)
 
-	var routeServiceURL string
-	rsurl := request.Context().Value("RouteServiceURL")
+	var routeServiceURL *url.URL
+	rsurl := request.Context().Value(handlers.RouteServiceURLCtxKey)
 	if rsurl != nil {
-		routeServiceURL = rsurl.(string)
+		routeServiceURL = rsurl.(*url.URL)
 	}
 
 	routePool := rp.(*route.Pool)
 	stickyEndpointID := getStickySession(request)
 	iter := routePool.Endpoints(rt.defaultLoadBalance, stickyEndpointID)
+
+	logger := rt.logger
 	for retry := 0; retry < handler.MaxRetries; retry++ {
 
-		if routeServiceURL == "" {
+		if routeServiceURL == nil {
+			logger.Debug("backend")
 			endpoint, err = rt.selectEndpoint(iter, request)
 			if err != nil {
 				break
 			}
+			logger = logger.With(zap.Nest("route-endpoint", endpoint.ToLogData()...))
 			res, err = rt.backendRoundTrip(request, endpoint, iter)
+			if err == nil || !retryableError(err) {
+				break
+			}
+			iter.EndpointFailed()
+			logger.Error("backend-endpoint-failed", zap.Error(err))
 		} else {
-			rt.logger.Debug("route-service")
+			logger.Debug("route-service", zap.Object("route-service-url", routeServiceURL))
 			endpoint = newRouteServiceEndpoint()
-			request.URL.Host = routeServiceURL
+			request.URL = routeServiceURL
 			res, err = rt.transport.RoundTrip(request)
+			if err == nil {
+				if res != nil && (res.StatusCode < 200 || res.StatusCode >= 300) {
+					logger.Info(
+						"route-service-response",
+						zap.String("endpoint", request.URL.String()),
+						zap.Int("status-code", res.StatusCode),
+					)
+				}
+				break
+			}
+			if !retryableError(err) {
+				break
+			}
+			logger.Error("route-service-connection-failed", zap.Error(err))
 		}
-
-		if err == nil || !retryableError(err) {
-			break
-		}
-
-		rt.reportError(iter, err)
 	}
 
 	accessLogRecord.RouteEndpoint = endpoint
@@ -130,12 +148,12 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 
 		accessLogRecord.StatusCode = http.StatusBadGateway
 
-		rt.logger.Info("status", zap.String("body", BadGatewayMessage))
+		logger.Info("status", zap.String("body", BadGatewayMessage))
 
 		http.Error(responseWriter, BadGatewayMessage, http.StatusBadGateway)
 		responseWriter.Header().Del("Connection")
 
-		rt.logger.Error("endpoint-failed", zap.Error(err))
+		logger.Error("endpoint-failed", zap.Error(err))
 
 		rt.combinedReporter.CaptureBadGateway()
 
@@ -168,7 +186,9 @@ func (rt *roundTripper) backendRoundTrip(
 	endpoint *route.Endpoint,
 	iter route.EndpointIterator,
 ) (*http.Response, error) {
-	rt.setupRequest(request, endpoint)
+	request.URL.Host = endpoint.CanonicalAddr()
+	request.Header.Set("X-CF-ApplicationID", endpoint.ApplicationId)
+	handler.SetRequestXCfInstanceId(request, endpoint)
 
 	// increment connection stats
 	iter.PreRequest(endpoint)
@@ -187,20 +207,7 @@ func (rt *roundTripper) selectEndpoint(iter route.EndpointIterator, request *htt
 		return nil, handler.NoEndpointsAvailable
 	}
 
-	rt.logger = rt.logger.With(zap.Nest("route-endpoint", endpoint.ToLogData()...))
 	return endpoint, nil
-}
-
-func (rt *roundTripper) setupRequest(request *http.Request, endpoint *route.Endpoint) {
-	rt.logger.Debug("backend")
-	request.URL.Host = endpoint.CanonicalAddr()
-	request.Header.Set("X-CF-ApplicationID", endpoint.ApplicationId)
-	handler.SetRequestXCfInstanceId(request, endpoint)
-}
-
-func (rt *roundTripper) reportError(iter route.EndpointIterator, err error) {
-	iter.EndpointFailed()
-	rt.logger.Error("backend-endpoint-failed", zap.Error(err))
 }
 
 func setupStickySession(
