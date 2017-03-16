@@ -22,6 +22,7 @@ import (
 const (
 	VcapCookieId      = "__VCAP_ID__"
 	StickyCookieKey   = "JSESSIONID"
+	CookieHeader      = "Set-Cookie"
 	BadGatewayMessage = "502 Bad Gateway: Registered endpoint failed to handle the request."
 )
 
@@ -251,7 +252,7 @@ func setupStickySession(
 		}
 
 		if v := cookie.String(); v != "" {
-			response.Header.Add("Set-Cookie", v)
+			response.Header.Add(CookieHeader, v)
 		}
 	}
 }
