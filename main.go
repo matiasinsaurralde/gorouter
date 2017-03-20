@@ -83,6 +83,37 @@ func main() {
 		debugserver.Run(c.DebugAddr, reconfigurableSink)
 	}
 
+	var routerGroupGuid string
+	var routingApiClient routing_api.Client
+	if c.RoutingApiEnabled() {
+		logger.Info("setting-up-routing-api")
+		routingApiClient = setupRoutingApiClient(c)
+
+		if c.RouterGroupName != "" {
+			var routerGroups models.RouterGroups
+			routerGroups, err = routingApiClient.RouterGroups()
+			if err != nil {
+				logger.Fatal("routing-api-connection-failed", zap.Error(err))
+			}
+			logger.Info("starting-to-fetch-router-groups")
+			routerGroupData := []zap.Field{zap.String("router-group", c.RouterGroupName)}
+			for _, rg := range routerGroups {
+				if rg.Name == c.RouterGroupName {
+					if rg.Type != "http" {
+						logger.Fatal("expected-router-group-type-http", routerGroupData...)
+					}
+					routerGroupGuid = rg.Guid
+					break
+				}
+			}
+
+			if routerGroupGuid == "" {
+				logger.Fatal("fetching-router-groups-failed", zap.Error(fmt.Errorf("invalid-router-group %s", c.RouterGroupName)))
+			}
+			logger.Info("successfully-fetched-router-groups", routerGroupData...)
+		}
+	}
+
 	logger.Info("setting-up-nats-connection")
 	startMsgChan := make(chan struct{})
 	natsClient := connectToNatsServer(logger.Session("nats"), c, startMsgChan)
@@ -92,7 +123,7 @@ func main() {
 	batcher := metricbatcher.New(sender, 5*time.Second)
 	metricsReporter := metrics.NewMetricsReporter(sender, batcher)
 
-	registry := rregistry.NewRouteRegistry(logger.Session("registry"), c, metricsReporter)
+	registry := rregistry.NewRouteRegistry(logger.Session("registry"), c, metricsReporter, routerGroupGuid)
 	if c.SuspendPruningIfNatsUnavailable {
 		registry.SuspendPruning(func() bool { return !(natsClient.Status() == nats.CONNECTED) })
 	}
@@ -122,36 +153,8 @@ func main() {
 	}
 	members := grouper.Members{}
 
-	var routerGroupGuid string
-	if c.RoutingApiEnabled() {
-		logger.Info("setting-up-routing-api")
-		routingApiClient := setupRoutingApiClient(c)
+	if routerGroupGuid != "" {
 		routeFetcher := setupRouteFetcher(logger.Session("route-fetcher"), c, registry, routingApiClient)
-
-		if c.RouterGroupName != "" {
-			var routerGroups models.RouterGroups
-			routerGroups, err = routingApiClient.RouterGroups()
-			if err != nil {
-				logger.Fatal("routing-api-connection-failed", zap.Error(err))
-			}
-			logger.Info("starting-to-fetch-router-groups")
-			routerGroupData := []zap.Field{zap.String("router-group", c.RouterGroupName)}
-			for _, rg := range routerGroups {
-				if rg.Name == c.RouterGroupName {
-					if rg.Type != "http" {
-						logger.Fatal("expected-router-group-type-http", routerGroupData...)
-					}
-					routerGroupGuid = rg.Guid
-					break
-				}
-			}
-
-			if routerGroupGuid == "" {
-				logger.Fatal("fetching-router-groups-failed", zap.Error(fmt.Errorf("invalid-router-group %s", c.RouterGroupName)))
-			}
-			logger.Info("successfully-fetched-router-groups", routerGroupData...)
-		}
-
 		// check connectivity to routing api
 		err = routeFetcher.FetchRoutes()
 		if err != nil {
@@ -159,6 +162,7 @@ func main() {
 		}
 		members = append(members, grouper.Member{Name: "router-fetcher", Runner: routeFetcher})
 	}
+
 	subscriber := createSubscriber(logger, c, natsClient, registry, startMsgChan, routerGroupGuid)
 
 	members = append(members, grouper.Member{Name: "subscriber", Runner: subscriber})

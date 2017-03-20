@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-var _ = Describe("RouteRegistry", func() {
+var _ = Describe("RouteRefdsfasdfgistry", func() {
 	var r *RouteRegistry
 	var reporter *fakes.FakeRouteRegistryReporter
 
@@ -27,6 +27,7 @@ var _ = Describe("RouteRegistry", func() {
 	var configObj *config.Config
 	var logger logger.Logger
 	var modTag models.ModificationTag
+	var routerGroupGuid string
 
 	BeforeEach(func() {
 
@@ -37,7 +38,9 @@ var _ = Describe("RouteRegistry", func() {
 
 		reporter = new(fakes.FakeRouteRegistryReporter)
 
-		r = NewRouteRegistry(logger, configObj, reporter)
+		routerGroupGuid = "pineapple-router-group-guid"
+
+		r = NewRouteRegistry(logger, configObj, reporter, routerGroupGuid)
 		modTag = models.ModificationTag{}
 		fooEndpoint = route.NewEndpoint("12345", "192.168.1.1", 1234,
 			"id1", "0",
@@ -178,18 +181,21 @@ var _ = Describe("RouteRegistry", func() {
 		})
 
 		Context("when route registration message is received", func() {
-			BeforeEach(func() {
-				r.Register("a.route", fooEndpoint)
-			})
-
 			It("logs at debug level", func() {
+				r.Register("a.route", fooEndpoint)
 				Expect(logger).To(gbytes.Say(`"log_level":0.*uri-added.*a\.route`))
 			})
 
 			It("logs register message only for new routes", func() {
+				r.Register("a.route", fooEndpoint)
 				Expect(logger).To(gbytes.Say(`uri-added.*.*a\.route`))
 				r.Register("a.route", fooEndpoint)
 				Expect(logger).NotTo(gbytes.Say(`uri-added.*.*a\.route`))
+			})
+
+			It("includes the router_group_guid in the log message", func() {
+				r.Register("a.route", fooEndpoint)
+				Expect(logger).To(gbytes.Say(`endpoint-registered.*.*router_group_guid.*pineapple-router-group-guid`))
 			})
 		})
 
@@ -427,6 +433,10 @@ var _ = Describe("RouteRegistry", func() {
 			It("only logs unregistration for existing routes", func() {
 				r.Unregister("non-existent-route", fooEndpoint)
 				Expect(logger).NotTo(gbytes.Say(`unregister.*.*a\.non-existent-route`))
+			})
+
+			It("includes the router_group_guid in the log message", func() {
+				Expect(logger).To(gbytes.Say(`endpoint-unregistered.*.*router_group_guid.*pineapple-router-group-guid`))
 			})
 		})
 
@@ -752,7 +762,7 @@ var _ = Describe("RouteRegistry", func() {
 				configObj.DropletStaleThreshold = 45 * time.Millisecond
 				reporter = new(fakes.FakeRouteRegistryReporter)
 
-				r = NewRouteRegistry(logger, configObj, reporter)
+				r = NewRouteRegistry(logger, configObj, reporter, routerGroupGuid)
 			})
 
 			It("sends route metrics to the reporter", func() {
@@ -780,7 +790,7 @@ var _ = Describe("RouteRegistry", func() {
 				configObj.DropletStaleThreshold = 1 * time.Second
 				reporter = new(fakes.FakeRouteRegistryReporter)
 
-				r = NewRouteRegistry(logger, configObj, reporter)
+				r = NewRouteRegistry(logger, configObj, reporter, routerGroupGuid)
 			})
 
 			It("does not log the route info for fresh routes when pruning", func() {

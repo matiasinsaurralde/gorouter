@@ -54,9 +54,11 @@ type RouteRegistry struct {
 
 	ticker           *time.Ticker
 	timeOfLastUpdate time.Time
+
+	routerGroupGuid string
 }
 
-func NewRouteRegistry(logger logger.Logger, c *config.Config, reporter metrics.RouteRegistryReporter) *RouteRegistry {
+func NewRouteRegistry(logger logger.Logger, c *config.Config, reporter metrics.RouteRegistryReporter, routerGroupGuid string) *RouteRegistry {
 	r := &RouteRegistry{}
 	r.logger = logger
 	r.byUri = container.NewTrie()
@@ -66,6 +68,7 @@ func NewRouteRegistry(logger logger.Logger, c *config.Config, reporter metrics.R
 	r.suspendPruning = func() bool { return false }
 
 	r.reporter = reporter
+	r.routerGroupGuid = routerGroupGuid
 	return r
 }
 
@@ -93,6 +96,7 @@ func (r *RouteRegistry) Register(uri route.Uri, endpoint *route.Endpoint) {
 
 	zapData := []zap.Field{
 		zap.Stringer("uri", uri),
+		zap.String("router_group_guid", r.routerGroupGuid),
 		zap.String("backend", endpoint.CanonicalAddr()),
 		zap.Object("modification_tag", endpoint.ModificationTag),
 	}
@@ -107,6 +111,7 @@ func (r *RouteRegistry) Register(uri route.Uri, endpoint *route.Endpoint) {
 func (r *RouteRegistry) Unregister(uri route.Uri, endpoint *route.Endpoint) {
 	zapData := []zap.Field{
 		zap.Stringer("uri", uri),
+		zap.String("router_group_guid", r.routerGroupGuid),
 		zap.String("backend", endpoint.CanonicalAddr()),
 		zap.Object("modification_tag", endpoint.ModificationTag),
 	}
