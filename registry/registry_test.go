@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-var _ = Describe("RouteRefdsfasdfgistry", func() {
+var _ = Describe("RouteRegistry", func() {
 	var r *RouteRegistry
 	var reporter *fakes.FakeRouteRegistryReporter
 
@@ -196,6 +196,18 @@ var _ = Describe("RouteRefdsfasdfgistry", func() {
 			It("includes the router_group_guid in the log message", func() {
 				r.Register("a.route", fooEndpoint)
 				Expect(logger).To(gbytes.Say(`endpoint-registered.*.*router_group_guid.*pineapple-router-group-guid`))
+			})
+
+			Context("when router_group_guid is not provided", func() {
+				BeforeEach(func() {
+					routerGroupGuid = ""
+					r = NewRouteRegistry(logger, configObj, reporter, routerGroupGuid)
+				})
+
+				It("defaults to `-`", func() {
+					r.Register("a.route", fooEndpoint)
+					Expect(logger).To(gbytes.Say(`endpoint-registered.*.*router_group_guid.*-`))
+				})
 			})
 		})
 
@@ -437,6 +449,18 @@ var _ = Describe("RouteRefdsfasdfgistry", func() {
 
 			It("includes the router_group_guid in the log message", func() {
 				Expect(logger).To(gbytes.Say(`endpoint-unregistered.*.*router_group_guid.*pineapple-router-group-guid`))
+			})
+
+			Context("when router_group_guid is not provided", func() {
+				BeforeEach(func() {
+					routerGroupGuid = ""
+					r = NewRouteRegistry(logger, configObj, reporter, routerGroupGuid)
+				})
+
+				It("defaults to `-`", func() {
+					r.Unregister("a.route", fooEndpoint)
+					Expect(logger).To(gbytes.Say(`endpoint-unregistered.*.*router_group_guid.*-`))
+				})
 			})
 		})
 

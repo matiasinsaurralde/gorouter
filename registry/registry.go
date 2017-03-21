@@ -20,7 +20,7 @@ type Registry interface {
 	Register(uri route.Uri, endpoint *route.Endpoint)
 	Unregister(uri route.Uri, endpoint *route.Endpoint)
 	Lookup(uri route.Uri) *route.Pool
-	LookupWithInstance(uri route.Uri, appId, appIndex string) *route.Pool
+	LookupWithInstance(uri route.Uri, appID, appIndex string) *route.Pool
 	StartPruningCycle()
 	StopPruningCycle()
 	NumUris() int
@@ -41,7 +41,7 @@ type RouteRegistry struct {
 	logger logger.Logger
 
 	// Access to the Trie datastructure should be governed by the RWMutex of RouteRegistry
-	byUri *container.Trie
+	byURI *container.Trie
 
 	// used for ability to suspend pruning
 	suspendPruning func() bool
@@ -55,20 +55,20 @@ type RouteRegistry struct {
 	ticker           *time.Ticker
 	timeOfLastUpdate time.Time
 
-	routerGroupGuid string
+	routerGroupGUID string
 }
 
-func NewRouteRegistry(logger logger.Logger, c *config.Config, reporter metrics.RouteRegistryReporter, routerGroupGuid string) *RouteRegistry {
+func NewRouteRegistry(logger logger.Logger, c *config.Config, reporter metrics.RouteRegistryReporter, routerGroupGUID string) *RouteRegistry {
 	r := &RouteRegistry{}
 	r.logger = logger
-	r.byUri = container.NewTrie()
+	r.byURI = container.NewTrie()
 
 	r.pruneStaleDropletsInterval = c.PruneStaleDropletsInterval
 	r.dropletStaleThreshold = c.DropletStaleThreshold
 	r.suspendPruning = func() bool { return false }
 
 	r.reporter = reporter
-	r.routerGroupGuid = routerGroupGuid
+	r.routerGroupGUID = routerGroupGUID
 	return r
 }
 
@@ -79,11 +79,11 @@ func (r *RouteRegistry) Register(uri route.Uri, endpoint *route.Endpoint) {
 
 	routekey := uri.RouteKey()
 
-	pool := r.byUri.Find(routekey)
+	pool := r.byURI.Find(routekey)
 	if pool == nil {
 		contextPath := parseContextPath(uri)
 		pool = route.NewPool(r.dropletStaleThreshold/4, contextPath)
-		r.byUri.Insert(routekey, pool)
+		r.byURI.Insert(routekey, pool)
 		r.logger.Debug("uri-added", zap.Stringer("uri", routekey))
 	}
 
@@ -94,9 +94,14 @@ func (r *RouteRegistry) Register(uri route.Uri, endpoint *route.Endpoint) {
 
 	r.reporter.CaptureRegistryMessage(endpoint)
 
+	routerGroupGUID := r.routerGroupGUID
+	if routerGroupGUID == "" {
+		routerGroupGUID = "-"
+	}
+
 	zapData := []zap.Field{
 		zap.Stringer("uri", uri),
-		zap.String("router_group_guid", r.routerGroupGuid),
+		zap.String("router_group_guid", routerGroupGUID),
 		zap.String("backend", endpoint.CanonicalAddr()),
 		zap.Object("modification_tag", endpoint.ModificationTag),
 	}
@@ -109,9 +114,14 @@ func (r *RouteRegistry) Register(uri route.Uri, endpoint *route.Endpoint) {
 }
 
 func (r *RouteRegistry) Unregister(uri route.Uri, endpoint *route.Endpoint) {
+	routerGroupGUID := r.routerGroupGUID
+	if routerGroupGUID == "" {
+		routerGroupGUID = "-"
+	}
+
 	zapData := []zap.Field{
 		zap.Stringer("uri", uri),
-		zap.String("router_group_guid", r.routerGroupGuid),
+		zap.String("router_group_guid", routerGroupGUID),
 		zap.String("backend", endpoint.CanonicalAddr()),
 		zap.Object("modification_tag", endpoint.ModificationTag),
 	}
@@ -120,7 +130,7 @@ func (r *RouteRegistry) Unregister(uri route.Uri, endpoint *route.Endpoint) {
 
 	uri = uri.RouteKey()
 
-	pool := r.byUri.Find(uri)
+	pool := r.byURI.Find(uri)
 	if pool != nil {
 		endpointRemoved := pool.Remove(endpoint)
 		if endpointRemoved {
@@ -130,7 +140,7 @@ func (r *RouteRegistry) Unregister(uri route.Uri, endpoint *route.Endpoint) {
 		}
 
 		if pool.IsEmpty() {
-			r.byUri.Delete(uri)
+			r.byURI.Delete(uri)
 		}
 	}
 
@@ -145,10 +155,10 @@ func (r *RouteRegistry) Lookup(uri route.Uri) *route.Pool {
 
 	uri = uri.RouteKey()
 	var err error
-	pool := r.byUri.MatchUri(uri)
+	pool := r.byURI.MatchUri(uri)
 	for pool == nil && err == nil {
 		uri, err = uri.NextWildcard()
-		pool = r.byUri.MatchUri(uri)
+		pool = r.byURI.MatchUri(uri)
 	}
 
 	r.RUnlock()
@@ -157,14 +167,14 @@ func (r *RouteRegistry) Lookup(uri route.Uri) *route.Pool {
 	return pool
 }
 
-func (r *RouteRegistry) LookupWithInstance(uri route.Uri, appId string, appIndex string) *route.Pool {
+func (r *RouteRegistry) LookupWithInstance(uri route.Uri, appID string, appIndex string) *route.Pool {
 	uri = uri.RouteKey()
 	p := r.Lookup(uri)
 
 	var surgicalPool *route.Pool
 
 	p.Each(func(e *route.Endpoint) {
-		if (e.ApplicationId == appId) && (e.PrivateInstanceIndex == appIndex) {
+		if (e.ApplicationId == appID) && (e.PrivateInstanceIndex == appIndex) {
 			surgicalPool = route.NewPool(0, "")
 			surgicalPool.Put(e)
 		}
@@ -203,7 +213,7 @@ func (r *RouteRegistry) StopPruningCycle() {
 
 func (registry *RouteRegistry) NumUris() int {
 	registry.RLock()
-	uriCount := registry.byUri.PoolCount()
+	uriCount := registry.byURI.PoolCount()
 	registry.RUnlock()
 
 	return uriCount
@@ -219,7 +229,7 @@ func (r *RouteRegistry) TimeOfLastUpdate() time.Time {
 
 func (r *RouteRegistry) NumEndpoints() int {
 	r.RLock()
-	count := r.byUri.EndpointCount()
+	count := r.byURI.EndpointCount()
 	r.RUnlock()
 
 	return count
@@ -229,7 +239,7 @@ func (r *RouteRegistry) MarshalJSON() ([]byte, error) {
 	r.RLock()
 	defer r.RUnlock()
 
-	return json.Marshal(r.byUri.ToMap())
+	return json.Marshal(r.byURI.ToMap())
 }
 
 func (r *RouteRegistry) pruneStaleDroplets() {
@@ -241,18 +251,17 @@ func (r *RouteRegistry) pruneStaleDroplets() {
 		r.logger.Info("prune-suspended")
 		r.pruningStatus = DISCONNECTED
 		return
-	} else {
-		if r.pruningStatus == DISCONNECTED {
-			// if we are coming back from being disconnected from source,
-			// bulk update routes / mark updated to avoid pruning right away
-			r.logger.Debug("prune-unsuspended-refresh-routes-start")
-			r.freshenRoutes()
-			r.logger.Debug("prune-unsuspended-refresh-routes-complete")
-		}
-		r.pruningStatus = CONNECTED
 	}
+	if r.pruningStatus == DISCONNECTED {
+		// if we are coming back from being disconnected from source,
+		// bulk update routes / mark updated to avoid pruning right away
+		r.logger.Debug("prune-unsuspended-refresh-routes-start")
+		r.freshenRoutes()
+		r.logger.Debug("prune-unsuspended-refresh-routes-complete")
+	}
+	r.pruningStatus = CONNECTED
 
-	r.byUri.EachNodeWithPool(func(t *container.Trie) {
+	r.byURI.EachNodeWithPool(func(t *container.Trie) {
 		endpoints := t.Pool.PruneEndpoints(r.dropletStaleThreshold)
 		t.Snip()
 		if len(endpoints) > 0 {
@@ -277,7 +286,7 @@ func (r *RouteRegistry) SuspendPruning(f func() bool) {
 // bulk update to mark pool / endpoints as updated
 func (r *RouteRegistry) freshenRoutes() {
 	now := time.Now()
-	r.byUri.EachNodeWithPool(func(t *container.Trie) {
+	r.byURI.EachNodeWithPool(func(t *container.Trie) {
 		t.Pool.MarkUpdated(now)
 	})
 }
