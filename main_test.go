@@ -41,12 +41,14 @@ const defaultPruneInterval = 1
 const defaultPruneThreshold = 2
 
 var _ = Describe("Router Integration", func() {
-	var tmpdir string
 
-	var natsPort uint16
-	var natsRunner *test_util.NATSRunner
-
-	var gorouterSession *Session
+	var (
+		tmpdir          string
+		natsPort        uint16
+		natsRunner      *test_util.NATSRunner
+		gorouterSession *Session
+		oauthServerURL  string
+	)
 
 	writeConfig := func(config *config.Config, cfgFile string) {
 		cfgBytes, err := yaml.Marshal(config)
@@ -131,6 +133,7 @@ var _ = Describe("Router Integration", func() {
 		natsPort = test_util.NextAvailPort()
 		natsRunner = test_util.NewNATSRunner(int(natsPort))
 		natsRunner.Start()
+		oauthServerURL = oauthServer.Addr()
 	})
 
 	AfterEach(func() {
@@ -186,7 +189,7 @@ var _ = Describe("Router Integration", func() {
 		})
 	})
 
-	Context("Drain", func() {
+	FContext("Drain", func() {
 		var config *config.Config
 		var localIP string
 		var statusPort uint16
@@ -745,13 +748,13 @@ var _ = Describe("Router Integration", func() {
 
 	})
 
-	FContext("when the routing api is enabled", func() {
+	Context("when the routing api is enabled", func() {
 		var (
 			config           *config.Config
-			uaaTlsListener   net.Listener
 			routingApiServer *ghttp.Server
 			cfgFile          string
 			responseBytes    []byte
+			verifyAuthHeader http.HandlerFunc
 		)
 
 		BeforeEach(func() {
@@ -769,18 +772,6 @@ var _ = Describe("Router Integration", func() {
 		})
 
 		JustBeforeEach(func() {
-			verifyAuthHeader := func(rw http.ResponseWriter, req *http.Request) {
-				defer GinkgoRecover()
-				Expect(req.Header.Get("Authorization")).ToNot(BeEmpty())
-				Expect(req.Header.Get("Authorization")).ToNot(
-					Equal("bearer"),
-					fmt.Sprintf(
-						`"bearer" shouldn't be the only string in the "Authorization" header. Req: %s %s`,
-						req.Method,
-						req.URL.RequestURI(),
-					),
-				)
-			}
 			routingApiServer = ghttp.NewUnstartedServer()
 			routingApiServer.RouteToHandler(
 				"GET", "/routing/v1/router_groups", ghttp.CombineHandlers(
@@ -819,6 +810,9 @@ var _ = Describe("Router Integration", func() {
 		})
 
 		Context("when the routing api auth is disabled ", func() {
+			BeforeEach(func() {
+				verifyAuthHeader = func(rw http.ResponseWriter, r *http.Request) {}
+			})
 			It("uses the no-op token fetcher", func() {
 				config.RoutingApi.AuthDisabled = true
 				writeConfig(config, cfgFile)
@@ -833,8 +827,19 @@ var _ = Describe("Router Integration", func() {
 		Context("when the routing api auth is enabled (default)", func() {
 			Context("when uaa is available on tls port", func() {
 				BeforeEach(func() {
-					uaaTlsListener = setupTlsServer()
-					config.OAuth.TokenEndpoint, config.OAuth.Port = hostnameAndPort(uaaTlsListener.Addr().String())
+					verifyAuthHeader = func(rw http.ResponseWriter, req *http.Request) {
+						defer GinkgoRecover()
+						Expect(req.Header.Get("Authorization")).ToNot(BeEmpty())
+						Expect(req.Header.Get("Authorization")).ToNot(
+							Equal("bearer"),
+							fmt.Sprintf(
+								`"bearer" shouldn't be the only string in the "Authorization" header. Req: %s %s`,
+								req.Method,
+								req.URL.RequestURI(),
+							),
+						)
+					}
+					config.OAuth.TokenEndpoint, config.OAuth.Port = hostnameAndPort(oauthServerURL)
 				})
 
 				It("fetches a token from uaa", func() {
@@ -906,8 +911,7 @@ var _ = Describe("Router Integration", func() {
 
 			Context("when routing api is not available", func() {
 				BeforeEach(func() {
-					uaaTlsListener = setupTlsServer()
-					config.OAuth.TokenEndpoint, config.OAuth.Port = hostnameAndPort(uaaTlsListener.Addr().String())
+					config.OAuth.TokenEndpoint, config.OAuth.Port = hostnameAndPort(oauthServerURL)
 				})
 				It("gorouter exits with non-zero code", func() {
 					routingApiServer.Close()
@@ -1001,22 +1005,45 @@ func routeExists(routesEndpoint, routeName string) (bool, error) {
 	}
 }
 
-func setupTlsServer() net.Listener {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+func setupTlsServer() *ghttp.Server {
+	oauthServer := ghttp.NewUnstartedServer()
+
+	caCertsPath := path.Join("test", "assets", "certs")
+	caCertsPath, err := filepath.Abs(caCertsPath)
 	Expect(err).ToNot(HaveOccurred())
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(fmt.Sprintf("{\"alg\":\"alg\", \"value\": \"%s\" }", "fake-public-key")))
-	})
+	public := filepath.Join(caCertsPath, "server.pem")
+	private := filepath.Join(caCertsPath, "server.key")
+	cert, err := tls.LoadX509KeyPair(public, private)
+	Expect(err).ToNot(HaveOccurred())
 
-	tlsListener := newTlsListener(listener)
-	tlsServer := &http.Server{Handler: handler}
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		CipherSuites: []uint16{tls.TLS_RSA_WITH_AES_256_CBC_SHA},
+	}
+	oauthServer.HTTPTestServer.TLS = tlsConfig
+	oauthServer.AllowUnhandledRequests = true
+	oauthServer.UnhandledRequestStatusCode = http.StatusOK
 
-	go func() {
-		err := tlsServer.Serve(tlsListener)
-		Expect(err).ToNot(HaveOccurred())
-	}()
-	return tlsListener
+	publicKey := "-----BEGIN PUBLIC KEY-----\\n" +
+		"MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDHFr+KICms+tuT1OXJwhCUmR2d\\n" +
+		"KVy7psa8xzElSyzqx7oJyfJ1JZyOzToj9T5SfTIq396agbHJWVfYphNahvZ/7uMX\\n" +
+		"qHxf+ZH9BL1gk9Y6kCnbM5R60gfwjyW1/dQPjOzn9N394zd2FJoFHwdq9Qs0wBug\\n" +
+		"spULZVNRxq7veq/fzwIDAQAB\\n" +
+		"-----END PUBLIC KEY-----"
+
+	data := fmt.Sprintf("{\"alg\":\"rsa\", \"value\":\"%s\"}", publicKey)
+	oauthServer.RouteToHandler("GET", "/token_key",
+		ghttp.CombineHandlers(
+			ghttp.VerifyRequest("GET", "/token_key"),
+			ghttp.RespondWith(http.StatusOK, data)),
+	)
+	oauthServer.RouteToHandler("POST", "/oauth/token",
+		func(w http.ResponseWriter, req *http.Request) {
+			jsonBytes := []byte(`{"access_token":"some-token", "expires_in":10}`)
+			w.Write(jsonBytes)
+		})
+	return oauthServer
 }
 
 func newTlsListener(listener net.Listener) net.Listener {

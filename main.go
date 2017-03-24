@@ -219,17 +219,18 @@ func setupRoutingAPIClient(logger goRouterLogger.Logger, c *config.Config) (rout
 
 	uaaClient := newUaaClient(logger, clock, c)
 
-	token, err := uaaClient.FetchToken(true)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch token: %s", err.Error())
+	if !c.RoutingApi.AuthDisabled {
+		token, err := uaaClient.FetchToken(true)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch token: %s", err.Error())
+		}
+		if token.AccessToken == "" {
+			return nil, fmt.Errorf("empty token fetched")
+		}
+		client.SetToken(token.AccessToken)
 	}
-	if token.AccessToken == "" {
-		return nil, fmt.Errorf("empty token fetched")
-	}
-	client.SetToken(token.AccessToken)
-
 	// Test connectivity
-	_, err = client.RouterGroups()
+	_, err := client.RouterGroups()
 	if err != nil {
 		return nil, err
 	}
