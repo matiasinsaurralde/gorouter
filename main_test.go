@@ -87,7 +87,7 @@ var _ = Describe("Router Integration", func() {
 			CACerts:           caCertsPath,
 		}
 
-		// writeConfig(cfg, cfgFile)
+		writeConfig(cfg, cfgFile)
 		return cfg
 	}
 
@@ -189,7 +189,7 @@ var _ = Describe("Router Integration", func() {
 		})
 	})
 
-	FContext("Drain", func() {
+	Context("Drain", func() {
 		var config *config.Config
 		var localIP string
 		var statusPort uint16

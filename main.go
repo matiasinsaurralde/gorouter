@@ -222,7 +222,7 @@ func setupRoutingAPIClient(logger goRouterLogger.Logger, c *config.Config) (rout
 	if !c.RoutingApi.AuthDisabled {
 		token, err := uaaClient.FetchToken(true)
 		if err != nil {
-			return nil, fmt.Errorf("unable to fetch token: %s", err.Error())
+			return nil, fmt.Errorf("unable-to-fetch-token: %s", err.Error())
 		}
 		if token.AccessToken == "" {
 			return nil, fmt.Errorf("empty token fetched")
