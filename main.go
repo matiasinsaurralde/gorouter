@@ -23,7 +23,6 @@ import (
 	rvarz "code.cloudfoundry.org/gorouter/varz"
 	"code.cloudfoundry.org/lager"
 	"code.cloudfoundry.org/routing-api"
-	"code.cloudfoundry.org/routing-api/models"
 	uaa_client "code.cloudfoundry.org/uaa-go-client"
 	uaa_config "code.cloudfoundry.org/uaa-go-client/config"
 	"github.com/cloudfoundry/dropsonde"
@@ -104,29 +103,7 @@ func main() {
 			logger.Fatal("routing-api-connection-failed", zap.Error(err))
 		}
 
-		if c.RouterGroupName != "" {
-			var routerGroups models.RouterGroups
-			routerGroups, err = routingAPIClient.RouterGroups()
-			if err != nil {
-				logger.Fatal("routing-api-connection-failed", zap.Error(err))
-			}
-			logger.Info("starting-to-fetch-router-groups")
-			routerGroupData := []zap.Field{zap.String("router-group", c.RouterGroupName)}
-			for _, rg := range routerGroups {
-				if rg.Name == c.RouterGroupName {
-					if rg.Type != "http" {
-						logger.Fatal("expected-router-group-type-http", routerGroupData...)
-					}
-					routerGroupGUID = rg.Guid
-					break
-				}
-			}
-
-			if routerGroupGUID == "" {
-				logger.Fatal("fetching-router-groups-failed", zap.Error(fmt.Errorf("invalid-router-group %s", c.RouterGroupName)))
-			}
-			logger.Info("successfully-fetched-router-groups", routerGroupData...)
-		}
+		routerGroupGUID = fetchRoutingGroupGUID(logger, c, routingAPIClient)
 	}
 	registry := rregistry.NewRouteRegistry(logger.Session("registry"), c, metricsReporter, routerGroupGUID)
 	if c.SuspendPruningIfNatsUnavailable {
@@ -208,6 +185,37 @@ func buildProxy(logger goRouterLogger.Logger, c *config.Config, registry rregist
 
 	return proxy.NewProxy(logger, accessLogger, c, registry,
 		reporter, routeServiceConfig, tlsConfig, &healthCheck)
+}
+
+func fetchRoutingGroupGUID(logger goRouterLogger.Logger, c *config.Config, routingAPIClient routing_api.Client) (routerGroupGUID string) {
+	if c.RouterGroupName == "" {
+		logger.Info("retrieved-router-group", []zap.Field{zap.String("router-group", "-"), zap.String("router-group-guid", "-")}...)
+		return
+	}
+
+	routerGroups, err := routingAPIClient.RouterGroups()
+	if err != nil {
+		logger.Fatal("routing-api-connection-failed", zap.Error(err))
+	}
+	logger.Info("starting-to-fetch-router-groups")
+	routerGroupData := []zap.Field{zap.String("router-group", c.RouterGroupName)}
+	for _, rg := range routerGroups {
+		if rg.Name == c.RouterGroupName {
+			if rg.Type != "http" {
+				logger.Fatal("expected-router-group-type-http", routerGroupData...)
+			}
+			routerGroupGUID = rg.Guid
+			break
+		}
+	}
+
+	if routerGroupGUID == "" {
+		logger.Fatal("fetching-router-groups-failed", zap.Error(fmt.Errorf("invalid-router-group %s", c.RouterGroupName)))
+	}
+	routerGroupData = append(routerGroupData, zap.String("router-group-guid", routerGroupGUID))
+	logger.Info("retrieved-router-group", routerGroupData...)
+
+	return
 }
 
 func setupRoutingAPIClient(logger goRouterLogger.Logger, c *config.Config) (routing_api.Client, error) {

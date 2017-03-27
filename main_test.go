@@ -859,17 +859,28 @@ var _ = Describe("Router Integration", func() {
 					defer session.Kill()
 					Consistently(session, 5*time.Second).ShouldNot(Exit(1))
 				})
-				Context("when given an invalid router group", func() {
-					It("does exit with status 1", func() {
-						config.RouterGroupName = "invalid_router_group"
+				Context("when a router group is provided", func() {
+					It("logs the router group name and the guid", func() {
+						config.RouterGroupName = "valid_router_group"
 						writeConfig(config, cfgFile)
-
 						gorouterCmd := exec.Command(gorouterPath, "-c", cfgFile)
 						session, err := Start(gorouterCmd, GinkgoWriter, GinkgoWriter)
 						Expect(err).ToNot(HaveOccurred())
-						defer session.Kill()
-						Eventually(session, 30*time.Second).Should(Say("invalid-router-group"))
-						Eventually(session, 5*time.Second).Should(Exit(1))
+						expectedLog := `retrieved-router-group","source":"gorouter.stdout","data":{"router-group":"valid_router_group","router-group-guid":"abc123"}`
+						Eventually(session).Should(Say(expectedLog))
+					})
+					Context("when given an invalid router group", func() {
+						It("does exit with status 1", func() {
+							config.RouterGroupName = "invalid_router_group"
+							writeConfig(config, cfgFile)
+
+							gorouterCmd := exec.Command(gorouterPath, "-c", cfgFile)
+							session, err := Start(gorouterCmd, GinkgoWriter, GinkgoWriter)
+							Expect(err).ToNot(HaveOccurred())
+							defer session.Kill()
+							Eventually(session, 30*time.Second).Should(Say("invalid-router-group"))
+							Eventually(session, 5*time.Second).Should(Exit(1))
+						})
 					})
 					Context("when the given router_group matches a tcp router group", func() {
 						BeforeEach(func() {
@@ -892,6 +903,16 @@ var _ = Describe("Router Integration", func() {
 							Eventually(session, 30*time.Second).Should(Say("expected-router-group-type-http"))
 							Eventually(session, 5*time.Second).Should(Exit(1))
 						})
+					})
+				})
+				Context("when a router group is not provided", func() {
+					It("logs the router group name and guid as '-'", func() {
+						writeConfig(config, cfgFile)
+						gorouterCmd := exec.Command(gorouterPath, "-c", cfgFile)
+						session, err := Start(gorouterCmd, GinkgoWriter, GinkgoWriter)
+						Expect(err).ToNot(HaveOccurred())
+						expectedLog := `retrieved-router-group","source":"gorouter.stdout","data":{"router-group":"-","router-group-guid":"-"}`
+						Eventually(session).Should(Say(expectedLog))
 					})
 				})
 			})
