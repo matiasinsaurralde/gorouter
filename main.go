@@ -238,7 +238,7 @@ func setupRoutingAPIClient(logger goRouterLogger.Logger, c *config.Config) (rout
 		client.SetToken(token.AccessToken)
 	}
 	// Test connectivity
-	_, err := client.RouterGroups()
+	_, err := client.Routes()
 	if err != nil {
 		return nil, err
 	}

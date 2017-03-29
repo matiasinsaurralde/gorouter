@@ -193,12 +193,12 @@ var _ = Describe("RouteRegistry", func() {
 				Expect(logger).NotTo(gbytes.Say(`uri-added.*.*a\.route`))
 			})
 
-			It("includes the router_group_guid in the log message", func() {
+			It("includes the router-group-guid in the log message", func() {
 				r.Register("a.route", fooEndpoint)
-				Expect(logger).To(gbytes.Say(`endpoint-registered.*.*router_group_guid.*pineapple-router-group-guid`))
+				Expect(logger).To(gbytes.Say(`endpoint-registered.*.*router-group-guid.*pineapple-router-group-guid`))
 			})
 
-			Context("when router_group_guid is not provided", func() {
+			Context("when router-group-guid is not provided", func() {
 				BeforeEach(func() {
 					routerGroupGuid = ""
 					r = NewRouteRegistry(logger, configObj, reporter, routerGroupGuid)
@@ -206,7 +206,7 @@ var _ = Describe("RouteRegistry", func() {
 
 				It("defaults to `-`", func() {
 					r.Register("a.route", fooEndpoint)
-					Expect(logger).To(gbytes.Say(`endpoint-registered.*.*router_group_guid.*-`))
+					Expect(logger).To(gbytes.Say(`endpoint-registered.*.*router-group-guid.*"-"`))
 				})
 			})
 		})
@@ -447,19 +447,20 @@ var _ = Describe("RouteRegistry", func() {
 				Expect(logger).NotTo(gbytes.Say(`unregister.*.*a\.non-existent-route`))
 			})
 
-			It("includes the router_group_guid in the log message", func() {
-				Expect(logger).To(gbytes.Say(`endpoint-unregistered.*.*router_group_guid.*pineapple-router-group-guid`))
+			It("includes the router-group-guid in the log message", func() {
+				Expect(logger).To(gbytes.Say(`endpoint-unregistered.*.*router-group-guid.*pineapple-router-group-guid`))
 			})
 
-			Context("when router_group_guid is not provided", func() {
+			Context("when router-group-guid is not provided", func() {
 				BeforeEach(func() {
 					routerGroupGuid = ""
 					r = NewRouteRegistry(logger, configObj, reporter, routerGroupGuid)
+					r.Register("a.route", fooEndpoint)
 				})
 
 				It("defaults to `-`", func() {
 					r.Unregister("a.route", fooEndpoint)
-					Expect(logger).To(gbytes.Say(`endpoint-unregistered.*.*router_group_guid.*-`))
+					Expect(logger).To(gbytes.Say(`endpoint-unregistered.*.*router-group-guid.*"-"`))
 				})
 			})
 		})
@@ -682,7 +683,28 @@ var _ = Describe("RouteRegistry", func() {
 
 			Expect(r.NumUris()).To(Equal(0))
 			r.MarshalJSON()
-			Expect(logger).To(gbytes.Say(`"log_level":1.*prune.*bar.com/path1/path2/path3.*endpoints`))
+			Expect(logger).To(gbytes.Say(`"log_level":1.*prune.*bar.com/path1/path2/path3.*endpoints.*router-group-guid.*pineapple-router-group-guid`))
+		})
+
+		Context("when router-group-guid is not provided", func() {
+			BeforeEach(func() {
+				routerGroupGuid = ""
+				r = NewRouteRegistry(logger, configObj, reporter, routerGroupGuid)
+			})
+
+			It("logs the route info for stale routes and router-group-guid defaults to `-`", func() {
+				r.Register("bar.com/path1/path2/path3", barEndpoint)
+				r.Register("bar.com/path1/path2/path3", fooEndpoint)
+
+				Expect(r.NumUris()).To(Equal(1))
+
+				r.StartPruningCycle()
+				time.Sleep(2 * configObj.PruneStaleDropletsInterval)
+
+				Expect(r.NumUris()).To(Equal(0))
+				r.MarshalJSON()
+				Expect(logger).To(gbytes.Say(`"log_level":1.*prune.*bar.com/path1/path2/path3.*endpoints.*router-group-guid.*"-"`))
+			})
 		})
 
 		It("removes stale droplets", func() {

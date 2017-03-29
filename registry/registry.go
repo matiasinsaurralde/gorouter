@@ -101,7 +101,7 @@ func (r *RouteRegistry) Register(uri route.Uri, endpoint *route.Endpoint) {
 
 	zapData := []zap.Field{
 		zap.Stringer("uri", uri),
-		zap.String("router_group_guid", routerGroupGUID),
+		zap.String("router-group-guid", routerGroupGUID),
 		zap.String("backend", endpoint.CanonicalAddr()),
 		zap.Object("modification_tag", endpoint.ModificationTag),
 	}
@@ -121,7 +121,7 @@ func (r *RouteRegistry) Unregister(uri route.Uri, endpoint *route.Endpoint) {
 
 	zapData := []zap.Field{
 		zap.Stringer("uri", uri),
-		zap.String("router_group_guid", routerGroupGUID),
+		zap.String("router-group-guid", routerGroupGUID),
 		zap.String("backend", endpoint.CanonicalAddr()),
 		zap.Object("modification_tag", endpoint.ModificationTag),
 	}
@@ -261,6 +261,11 @@ func (r *RouteRegistry) pruneStaleDroplets() {
 	}
 	r.pruningStatus = CONNECTED
 
+	routerGroupGUID := r.routerGroupGUID
+	if routerGroupGUID == "" {
+		routerGroupGUID = "-"
+	}
+
 	r.byURI.EachNodeWithPool(func(t *container.Trie) {
 		endpoints := t.Pool.PruneEndpoints(r.dropletStaleThreshold)
 		t.Snip()
@@ -272,6 +277,7 @@ func (r *RouteRegistry) pruneStaleDroplets() {
 			r.logger.Info("pruned-route",
 				zap.String("uri", t.ToPath()),
 				zap.Object("endpoints", addresses),
+				zap.String("router-group-guid", routerGroupGUID),
 			)
 		}
 	})
