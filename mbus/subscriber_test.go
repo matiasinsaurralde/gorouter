@@ -225,7 +225,6 @@ var _ = Describe("Subscriber", func() {
 				Expect(endpoint.CanonicalAddr()).To(ContainSubstring(msg.Host))
 			}
 		})
-
 		Context("when the message cannot be unmarshaled", func() {
 			It("does not update the registry", func() {
 				err := natsClient.Publish("router.register", []byte(` `))
@@ -364,12 +363,64 @@ var _ = Describe("Subscriber", func() {
 		})
 	})
 
+	Context("when a router group is not configured", func() {
+		BeforeEach(func() {
+			sub = mbus.NewSubscriber(logger, natsClient, registry, startMsgChan, subOpts, "")
+			process = ifrit.Invoke(sub)
+			Eventually(process.Ready()).Should(BeClosed())
+		})
+
+		It("only registers routes with no router group", func() {
+			msg := mbus.RegistryMessage{
+				Host:                 "host",
+				App:                  "app",
+				RouteServiceURL:      "https://url.example.com",
+				PrivateInstanceID:    "id",
+				PrivateInstanceIndex: "index",
+				Port:                 1111,
+				StaleThresholdInSeconds: 120,
+				Uris:            []route.Uri{"test.example.com"},
+				Tags:            map[string]string{"key": "value"},
+				RouterGroupGuid: "default-http",
+			}
+			msg1 := mbus.RegistryMessage{
+				Host:                 "host1",
+				App:                  "app1",
+				RouteServiceURL:      "https://url1.example.com",
+				PrivateInstanceID:    "id",
+				PrivateInstanceIndex: "index",
+				Port:                 1111,
+				StaleThresholdInSeconds: 120,
+				Uris: []route.Uri{"test1.example.com"},
+				Tags: map[string]string{"key": "value"},
+			}
+
+			data, err := json.Marshal(msg)
+			Expect(err).NotTo(HaveOccurred())
+
+			data1, err := json.Marshal(msg1)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = natsClient.Publish("router.register", data)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = natsClient.Publish("router.register", data1)
+			Expect(err).ToNot(HaveOccurred())
+
+			Eventually(registry.RegisterCallCount).Should(Equal(1))
+
+			uri, _ := registry.RegisterArgsForCall(0)
+			Expect(msg1.Uris).To(ContainElement(uri))
+		})
+	})
+
 	Context("when a router group is configured", func() {
 		BeforeEach(func() {
 			sub = mbus.NewSubscriber(logger, natsClient, registry, startMsgChan, subOpts, "default-http")
 			process = ifrit.Invoke(sub)
 			Eventually(process.Ready()).Should(BeClosed())
 		})
+
 		It("only registers routes with that router group", func() {
 			msg := mbus.RegistryMessage{
 				Host:                 "host",

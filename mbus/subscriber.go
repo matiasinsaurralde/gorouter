@@ -3,6 +3,7 @@ package mbus
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -130,7 +131,11 @@ func (s *Subscriber) subscribeRoutes() error {
 	natsSubscriber, err := s.natsClient.Subscribe("router.*", func(message *nats.Msg) {
 		switch message.Subject {
 		case "router.register":
-			s.registerRoute(message)
+			if s.routerGroupGuid == "" {
+				s.registerRoute(message)
+			} else {
+				s.registerWithRouterGroup(message)
+			}
 		case "router.unregister":
 			s.unregisterRoute(message)
 		default:
@@ -163,6 +168,24 @@ func (s *Subscriber) unregisterRoute(message *nats.Msg) {
 	}
 }
 
+func (s *Subscriber) registerWithRouterGroup(message *nats.Msg) {
+	msg, regErr := createRegistryMessage(message.Data)
+	if regErr != nil {
+		s.logger.Error("validation-error",
+			zap.Error(regErr),
+			zap.String("payload", string(message.Data)),
+			zap.String("subject", message.Subject),
+		)
+		return
+	}
+	if s.routerGroupGuid == msg.RouterGroupGuid {
+		endpoint := msg.makeEndpoint()
+		for _, uri := range msg.Uris {
+			s.routeRegistry.Register(uri, endpoint)
+		}
+	}
+}
+
 func (s *Subscriber) registerRoute(message *nats.Msg) {
 	msg, regErr := createRegistryMessage(message.Data)
 	if regErr != nil {
@@ -174,8 +197,9 @@ func (s *Subscriber) registerRoute(message *nats.Msg) {
 		return
 	}
 
-	if s.routerGroupGuid == msg.RouterGroupGuid {
+	if msg.RouterGroupGuid == "" {
 		endpoint := msg.makeEndpoint()
+		fmt.Println("got here! ", endpoint)
 		for _, uri := range msg.Uris {
 			s.routeRegistry.Register(uri, endpoint)
 		}
