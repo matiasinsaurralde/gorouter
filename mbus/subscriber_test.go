@@ -422,30 +422,8 @@ var _ = Describe("Subscriber", func() {
 		})
 
 		It("only registers routes with that router group", func() {
-			msg := mbus.RegistryMessage{
-				Host:                 "host",
-				App:                  "app",
-				RouteServiceURL:      "https://url.example.com",
-				PrivateInstanceID:    "id",
-				PrivateInstanceIndex: "index",
-				Port:                 1111,
-				StaleThresholdInSeconds: 120,
-				Uris:            []route.Uri{"test.example.com"},
-				Tags:            map[string]string{"key": "value"},
-				RouterGroupGuid: "default-http",
-			}
-			msg1 := mbus.RegistryMessage{
-				Host:                 "host",
-				App:                  "app",
-				RouteServiceURL:      "https://url.example.com",
-				PrivateInstanceID:    "id",
-				PrivateInstanceIndex: "index",
-				Port:                 1111,
-				StaleThresholdInSeconds: 120,
-				Uris:            []route.Uri{"test.example.com"},
-				Tags:            map[string]string{"key": "value"},
-				RouterGroupGuid: "default-http2",
-			}
+			msgs := testMessages()
+			msg, msg1 := msgs[0], msgs[1]
 
 			data, err := json.Marshal(msg)
 			Expect(err).NotTo(HaveOccurred())
@@ -467,31 +445,8 @@ var _ = Describe("Subscriber", func() {
 		})
 
 		It("only unregisters routes with that router group", func() {
-			msg := mbus.RegistryMessage{
-				Host:                 "host",
-				App:                  "app",
-				RouteServiceURL:      "https://url.example.com",
-				PrivateInstanceID:    "id",
-				PrivateInstanceIndex: "index",
-				Port:                 1111,
-				StaleThresholdInSeconds: 120,
-				Uris:            []route.Uri{"test.example.com"},
-				Tags:            map[string]string{"key": "value"},
-				RouterGroupGuid: "default-http",
-			}
-
-			msg1 := mbus.RegistryMessage{
-				Host:                 "host",
-				App:                  "app",
-				RouteServiceURL:      "https://url.example.com",
-				PrivateInstanceID:    "id",
-				PrivateInstanceIndex: "index",
-				Port:                 1111,
-				StaleThresholdInSeconds: 120,
-				Uris:            []route.Uri{"test.example.com"},
-				Tags:            map[string]string{"key": "value"},
-				RouterGroupGuid: "default-http1",
-			}
+			msgs := testMessages()
+			msg, msg1 := msgs[0], msgs[1]
 
 			data, err := json.Marshal(msg)
 			Expect(err).NotTo(HaveOccurred())
@@ -520,3 +475,32 @@ var _ = Describe("Subscriber", func() {
 		})
 	})
 })
+
+func testMessages() []mbus.RegistryMessage {
+	msg := mbus.RegistryMessage{
+		Host:                 "host",
+		App:                  "app",
+		RouteServiceURL:      "https://url.example.com",
+		PrivateInstanceID:    "id",
+		PrivateInstanceIndex: "index",
+		Port:                 1111,
+		StaleThresholdInSeconds: 120,
+		Uris:            []route.Uri{"test.example.com"},
+		Tags:            map[string]string{"key": "value"},
+		RouterGroupGuid: "default-http",
+	}
+
+	msg1 := mbus.RegistryMessage{
+		Host:                 "host",
+		App:                  "app",
+		RouteServiceURL:      "https://url.example.com",
+		PrivateInstanceID:    "id",
+		PrivateInstanceIndex: "index",
+		Port:                 1111,
+		StaleThresholdInSeconds: 120,
+		Uris:            []route.Uri{"test.example.com"},
+		Tags:            map[string]string{"key": "value"},
+		RouterGroupGuid: "default-http1",
+	}
+	return []mbus.RegistryMessage{msg, msg1}
+}

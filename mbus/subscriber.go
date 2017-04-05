@@ -3,7 +3,6 @@ package mbus
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 
@@ -131,11 +130,7 @@ func (s *Subscriber) subscribeRoutes() error {
 	natsSubscriber, err := s.natsClient.Subscribe("router.*", func(message *nats.Msg) {
 		switch message.Subject {
 		case "router.register":
-			if s.routerGroupGuid == "" {
-				s.registerRoute(message)
-			} else {
-				s.registerWithRouterGroup(message)
-			}
+			s.handleRouterRegister(message)
 		case "router.unregister":
 			s.unregisterRoute(message)
 		default:
@@ -145,6 +140,42 @@ func (s *Subscriber) subscribeRoutes() error {
 	// Pending limits are set to twice the defaults
 	natsSubscriber.SetPendingLimits(131072, 131072*1024)
 	return err
+}
+
+func (s *Subscriber) handleRouterRegister(message *nats.Msg) {
+	msg, regErr := createRegistryMessage(message.Data)
+	if regErr != nil {
+		s.logger.Error("validation-error",
+			zap.Error(regErr),
+			zap.String("payload", string(message.Data)),
+			zap.String("subject", message.Subject),
+		)
+		return
+	}
+	if s.routerGroupGuid != "" {
+		s.registerWithRouterGroup(msg)
+		return
+	}
+	s.registerRoute(msg)
+}
+
+func (s *Subscriber) registerEndpoint(msg *RegistryMessage) {
+	endpoint := msg.makeEndpoint()
+	for _, uri := range msg.Uris {
+		s.routeRegistry.Register(uri, endpoint)
+	}
+}
+
+func (s *Subscriber) registerWithRouterGroup(msg *RegistryMessage) {
+	if s.routerGroupGuid == msg.RouterGroupGuid {
+		s.registerEndpoint(msg)
+	}
+}
+
+func (s *Subscriber) registerRoute(msg *RegistryMessage) {
+	if msg.RouterGroupGuid == "" {
+		s.registerEndpoint(msg)
+	}
 }
 
 func (s *Subscriber) unregisterRoute(message *nats.Msg) {
@@ -164,44 +195,6 @@ func (s *Subscriber) unregisterRoute(message *nats.Msg) {
 		endpoint := msg.makeEndpoint()
 		for _, uri := range msg.Uris {
 			s.routeRegistry.Unregister(uri, endpoint)
-		}
-	}
-}
-
-func (s *Subscriber) registerWithRouterGroup(message *nats.Msg) {
-	msg, regErr := createRegistryMessage(message.Data)
-	if regErr != nil {
-		s.logger.Error("validation-error",
-			zap.Error(regErr),
-			zap.String("payload", string(message.Data)),
-			zap.String("subject", message.Subject),
-		)
-		return
-	}
-	if s.routerGroupGuid == msg.RouterGroupGuid {
-		endpoint := msg.makeEndpoint()
-		for _, uri := range msg.Uris {
-			s.routeRegistry.Register(uri, endpoint)
-		}
-	}
-}
-
-func (s *Subscriber) registerRoute(message *nats.Msg) {
-	msg, regErr := createRegistryMessage(message.Data)
-	if regErr != nil {
-		s.logger.Error("validation-error",
-			zap.Error(regErr),
-			zap.String("payload", string(message.Data)),
-			zap.String("subject", message.Subject),
-		)
-		return
-	}
-
-	if msg.RouterGroupGuid == "" {
-		endpoint := msg.makeEndpoint()
-		fmt.Println("got here! ", endpoint)
-		for _, uri := range msg.Uris {
-			s.routeRegistry.Register(uri, endpoint)
 		}
 	}
 }
