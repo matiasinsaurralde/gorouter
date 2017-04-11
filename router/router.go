@@ -29,7 +29,6 @@ import (
 	"code.cloudfoundry.org/gorouter/registry"
 	"code.cloudfoundry.org/gorouter/varz"
 	"github.com/armon/go-proxyproto"
-	"github.com/cloudfoundry/dropsonde"
 	"github.com/nats-io/nats"
 	"github.com/uber-go/zap"
 )
@@ -171,7 +170,7 @@ func (r *Router) Run(signals <-chan os.Signal, ready chan<- struct{}) error {
 
 	r.logger.Info("completed-wait")
 
-	handler := gorouterHandler{handler: dropsonde.InstrumentedHandler(r.proxy), logger: r.logger}
+	handler := gorouterHandler{handler: r.proxy, logger: r.logger}
 
 	server := &http.Server{
 		Handler:   &handler,

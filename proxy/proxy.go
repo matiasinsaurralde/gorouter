@@ -23,6 +23,7 @@ import (
 	"code.cloudfoundry.org/gorouter/registry"
 	"code.cloudfoundry.org/gorouter/route"
 	"code.cloudfoundry.org/gorouter/routeservice"
+	"github.com/cloudfoundry/dropsonde"
 	"github.com/uber-go/zap"
 	"github.com/urfave/negroni"
 )
@@ -117,7 +118,7 @@ func NewProxy(
 	n.Use(handlers.NewLookup(registry, reporter, logger))
 	n.Use(handlers.NewRouteService(routeServiceConfig, logger))
 	n.Use(p)
-	n.UseHandler(rproxy)
+	n.UseHandler(dropsonde.InstrumentedHandler(rproxy))
 
 	return n
 }
