@@ -126,6 +126,8 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 				zap.Int("attempt", retry),
 			)
 
+			// lookup routeService URL in the routepool
+
 			// this is an empty endpoint to fail proof
 			// this should now be the real service endpoint
 			endpoint = newRouteServiceEndpoint()

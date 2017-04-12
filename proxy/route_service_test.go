@@ -372,4 +372,50 @@ var _ = Describe("Route Services", func() {
 			Expect(okCodes).Should(ContainElement(res.StatusCode))
 		})
 	})
+
+	Context("when the route service is a CF app", func() {
+
+		FIt("only calls proxyHandler once", func() {
+			rsListener := registerHandler(r, "my_route_service.com", func(conn *test_util.HttpConn) {
+				defer GinkgoRecover()
+
+				r, _ := conn.ReadRequest()
+				Expect(r.Host).ToNot(Equal("my_host.com"))
+				metaHeader := r.Header.Get(routeservice.RouteServiceMetadata)
+				sigHeader := r.Header.Get(routeservice.RouteServiceSignature)
+
+				crypto, err := secure.NewAesGCM([]byte(cryptoKey))
+				Expect(err).ToNot(HaveOccurred())
+				_, err = header.SignatureFromHeaders(sigHeader, metaHeader, crypto)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(r.Header.Get("X-CF-ApplicationID")).ToNot(Equal(""))
+
+				// validate client request header
+				Expect(r.Header.Get("X-CF-Forwarded-Url")).To(Equal(forwardedUrl))
+
+				_, err = conn.Writer.Write([]byte("My Special Snowflake Route Service\n"))
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			appListener := registerHandlerWithRouteService(r, "my_host.com", "http://my_route_service.com", func(conn *test_util.HttpConn) {
+				defer GinkgoRecover()
+				Fail("Should not get here")
+			})
+			defer func() {
+				Expect(rsListener.Close()).ToNot(HaveErrored())
+				Expect(appListener.Close()).ToNot(HaveErrored())
+			}()
+			conn := dialProxy(proxyServer)
+
+			req := test_util.NewRequest("GET", "my_host.com", "", nil)
+			conn.WriteRequest(req)
+
+			res, _ := readResponse(conn)
+
+			okCodes := []int{http.StatusOK, http.StatusFound}
+			Expect(okCodes).Should(ContainElement(res.StatusCode))
+
+		})
+	})
 })
