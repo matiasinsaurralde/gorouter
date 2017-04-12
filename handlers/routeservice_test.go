@@ -5,9 +5,12 @@ import (
 	"bytes"
 	"context"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"code.cloudfoundry.org/gorouter/access_log/schema"
@@ -76,7 +79,6 @@ var _ = Describe("Route Service Handler", func() {
 		routePool = route.NewPool(1*time.Second, "")
 
 		req = req.WithContext(context.WithValue(req.Context(), "AccessLogRecord", alr))
-		req = req.WithContext(context.WithValue(req.Context(), "RoutePool", routePool))
 
 		fakeLogger = new(logger_fakes.FakeLogger)
 
@@ -95,6 +97,7 @@ var _ = Describe("Route Service Handler", func() {
 
 	JustBeforeEach(func() {
 		handler = handlers.NewRouteService(config, fakeLogger)
+		req = req.WithContext(context.WithValue(req.Context(), "RoutePool", routePool))
 	})
 
 	Context("with route services disabled", func() {
@@ -476,5 +479,69 @@ var _ = Describe("Route Service Handler", func() {
 				Expect(nextCalled).To(BeFalse())
 			})
 		})
+
+		Context("when the route service is a CF app", func() {
+			var (
+				routeServiceServer *httptest.Server
+				applicationServer  *httptest.Server
+				routeServiceCalled chan struct{}
+				applicationCalled  chan struct{}
+			)
+			var routeService = func(rw http.ResponseWriter, req *http.Request) {
+				routeServiceCalled <- struct{}{}
+			}
+			var application = func(rw http.ResponseWriter, req *http.Request) {
+				applicationCalled <- struct{}{}
+			}
+			BeforeEach(func() {
+				// have a route service come up on som eURL : localhost:9090
+				// have an app come up with some URL : localhost: 9091
+				// create an endpoint (apphost: appURL , rsURL: route service URL)
+				// create an endpoint  with rs as app (apphost: rsURL , rsURL: "")
+				// put the endpoint to pool
+
+				//NewEndpoint(appId, host string, port uint16, privateInstanceId string, privateInstanceIndex string,
+				//tags map[string]string, staleThresholdInSeconds int, routeServiceUrl string, modificationTag models.ModificationTag)
+				routeServiceCalled = make(chan struct{}, 1)
+				applicationCalled = make(chan struct{}, 1)
+
+				routeServiceServer = httptest.NewServer(http.HandlerFunc(routeService))
+				rsHost, rsPort := hostPort(routeServiceServer.URL)
+				serviceEndpoint := route.NewEndpoint("", rsHost, rsPort, "", "",
+					map[string]string{}, 5, "", models.ModificationTag{})
+
+				added := routePool.Put(serviceEndpoint)
+				Expect(added).To(BeTrue())
+
+				applicationServer = httptest.NewServer(http.HandlerFunc(application))
+				appHost, appPort := hostPort(applicationServer.URL)
+				// remember to kill in after each
+				applicatonEndpoint := route.NewEndpoint("", appHost, appPort, "", "",
+					map[string]string{}, 5, routeServiceServer.URL, models.ModificationTag{})
+				added = routePool.Put(applicatonEndpoint)
+				Expect(added).To(BeTrue())
+				req = req.WithContext(context.WithValue(req.Context(), handlers.ProxyResponseWriterCtxKey, routeServiceServer.URL))
+			})
+			AfterEach(func() {
+				routeServiceServer.Close()
+				applicationServer.Close()
+			})
+
+			FIt("should do something", func() {
+
+			})
+		})
 	})
 })
+
+func hostPort(url string) (host string, portInt uint16) {
+	urlParts := strings.Split(url, "http://")
+	Expect(urlParts).To(HaveLen(2))
+	host, port, err := net.SplitHostPort(urlParts[1])
+	Expect(err).ToNot(HaveOccurred())
+	var portInt64 uint64
+	portInt64, err = strconv.ParseUint(port, 10, 16)
+	Expect(err).ToNot(HaveOccurred())
+	portInt = uint16(portInt64)
+	return
+}

@@ -58,6 +58,10 @@ var _ = Describe("ProxyRoundTripper", func() {
 			}
 		)
 
+		JustBeforeEach(func() {
+			req = req.WithContext(context.WithValue(req.Context(), "RoutePool", routePool))
+		})
+
 		BeforeEach(func() {
 			routePool = route.NewPool(1*time.Second, "")
 			resp = httptest.NewRecorder()
@@ -66,7 +70,6 @@ var _ = Describe("ProxyRoundTripper", func() {
 			req = test_util.NewRequest("GET", "myapp.com", "/", nil)
 			req.URL.Scheme = "http"
 
-			req = req.WithContext(context.WithValue(req.Context(), "RoutePool", routePool))
 			req = req.WithContext(context.WithValue(req.Context(), handlers.ProxyResponseWriterCtxKey, proxyWriter))
 			req = req.WithContext(context.WithValue(req.Context(), "AccessLogRecord", alr))
 
