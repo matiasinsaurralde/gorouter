@@ -13,6 +13,7 @@ import (
 	"code.cloudfoundry.org/gorouter/access_log/schema"
 	"code.cloudfoundry.org/gorouter/common/secure"
 	"code.cloudfoundry.org/gorouter/handlers"
+	"code.cloudfoundry.org/gorouter/proxy"
 	"code.cloudfoundry.org/gorouter/route"
 	"code.cloudfoundry.org/gorouter/routeservice"
 	"code.cloudfoundry.org/gorouter/routeservice/header"
@@ -20,6 +21,8 @@ import (
 	"code.cloudfoundry.org/routing-api/models"
 
 	logger_fakes "code.cloudfoundry.org/gorouter/logger/fakes"
+	round_tripper_fakes "code.cloudfoundry.org/gorouter/proxy/round_tripper/fakes"
+	"code.cloudfoundry.org/gorouter/registry/fakes"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -28,7 +31,9 @@ import (
 
 var _ = Describe("Route Service Handler", func() {
 	var (
-		routeServiceHandler negroni.Handler
+		fakeRegistry          *fakes.FakeRegistry
+		routeServiceHandler   negroni.Handler
+		fakeProxyRoundTripper *round_tripper_fakes.FakeProxyRoundTripper
 
 		resp *httptest.ResponseRecorder
 		req  *http.Request
@@ -70,15 +75,15 @@ var _ = Describe("Route Service Handler", func() {
 	}
 
 	BeforeEach(func() {
+		fakeRegistry = &fakes.FakeRegistry{}
 		routePool = route.NewPool(1*time.Second, "")
 		forwardedUrl = "https://my_host.com/resource+9-9_9?query=123&query$2=345#page1..5"
-
 		body := bytes.NewBufferString("What are you?")
 		testReq := test_util.NewRequest("GET", "my_host.com", "/resource+9-9_9?query=123&query$2=345#page1..5", body)
 		req = updateRequest(testReq, routePool)
 		resp = httptest.NewRecorder()
 		reqChan = make(chan *http.Request, 1)
-		nextCalled = make(chan struct{}, 10)
+		nextCalled = make(chan struct{}, 1)
 
 		var err error
 		crypto, err = secure.NewAesGCM([]byte("ABCDEFGHIJKLMNOP"))
@@ -88,10 +93,15 @@ var _ = Describe("Route Service Handler", func() {
 		config = routeservice.NewRouteServiceConfig(
 			fakeLogger, true, 60*time.Second, crypto, nil, true,
 		)
+
+		fakeProxyRoundTripper = &round_tripper_fakes.FakeProxyRoundTripper{}
 	})
 
 	JustBeforeEach(func() {
-		routeServiceHandler = handlers.NewRouteService(config, fakeLogger)
+		reverseProxy := &proxy.ReverseProxy{
+			Transport: fakeProxyRoundTripper,
+		}
+		routeServiceHandler = handlers.NewRouteService(fakeRegistry, reverseProxy, config, fakeLogger)
 	})
 
 	AfterEach(func() {
@@ -182,7 +192,7 @@ var _ = Describe("Route Service Handler", func() {
 				Expect(added).To(BeTrue())
 			})
 
-			It("sends the request to the route service with X-CF-Forwarded-Url using https scheme", func() {
+			FIt("sends the request to the route service with X-CF-Forwarded-Url using https scheme", func() {
 				routeServiceHandler.ServeHTTP(resp, req, proxyHandler)
 
 				Expect(resp.Code).To(Equal(http.StatusTeapot))
@@ -199,7 +209,53 @@ var _ = Describe("Route Service Handler", func() {
 				routeServiceURL := rsurl.(*url.URL)
 				Expect(routeServiceURL.Host).To(Equal("route-service.com"))
 				Expect(routeServiceURL.Scheme).To(Equal("https"))
-				Eventually(nextCalled).Should(Receive(), "Expected the next handler to be called.")
+				Consistently(nextCalled).ShouldNot(Receive())
+
+				Expect(fakeProxyRoundTripper.RoundTripCallCount()).To(Equal(1))
+			})
+
+			Context("when route service is a CF app", func() {
+				var rsRoutePool *route.Pool
+
+				BeforeEach(func() {
+					endpoint := route.NewEndpoint(
+						"rsAppId", "1.1.1.1", uint16(9090), "id", "1", map[string]string{}, 0,
+						"https://route-service.com", models.ModificationTag{},
+					)
+
+					rsRoutePool = route.NewPool(1*time.Second, "route-service")
+					added := rsRoutePool.Put(endpoint)
+					Expect(added).To(BeTrue())
+
+					fakeRegistry.LookupReturns(rsRoutePool)
+				})
+
+				It("looks up route service url in the registry", func() {
+					routeServiceHandler.ServeHTTP(resp, req, proxyHandler)
+
+					var passedReq *http.Request
+					Eventually(reqChan).Should(Receive(&passedReq))
+
+					Expect(fakeRegistry.LookupCallCount()).To(Equal(1))
+					routeURI := fakeRegistry.LookupArgsForCall(0)
+					Expect(routeURI).To(Equal(route.Uri("https://route-service.com")))
+
+					rsURL := passedReq.Context().Value(handlers.RouteServiceURLCtxKey)
+					Expect(rsURL).ToNot(BeNil())
+
+					routeServiceURL := rsURL.(*url.URL)
+
+					Expect(routeServiceURL.Host).To(Equal("route-service.com"))
+					Expect(routeServiceURL.Scheme).To(Equal("https"))
+
+					// check that pool on the request context is not pointing toward CF route service app
+					routeServicePool := passedReq.Context().Value("RoutePool")
+					Expect(routeServicePool).ToNot(BeNil())
+					rsPool := routeServicePool.(*route.Pool)
+					Expect(rsPool).To(Equal(rsRoutePool))
+
+					Eventually(nextCalled).Should(Receive())
+				})
 			})
 
 			Context("when recommendHttps is set to false", func() {

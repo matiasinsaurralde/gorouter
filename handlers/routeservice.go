@@ -1,11 +1,13 @@
 package handlers
 
 import (
-	"context"
 	"errors"
 	"net/http"
 
+	"golang.org/x/net/context"
+
 	"code.cloudfoundry.org/gorouter/logger"
+	"code.cloudfoundry.org/gorouter/registry"
 	"code.cloudfoundry.org/gorouter/routeservice"
 	"github.com/uber-go/zap"
 	"github.com/urfave/negroni"
@@ -14,15 +16,26 @@ import (
 )
 
 type routeService struct {
-	config *routeservice.RouteServiceConfig
-	logger logger.Logger
+	routeRegistry registry.Registry
+	config        *routeservice.RouteServiceConfig
+	logger        logger.Logger
 }
 
+type RouteServiceProxy interface {
+	ServeHTTP(responseWriter http.ResponseWriter, request *http.Request)
+}
+
+// TODO: the new routeService reverseProxy will get injected into this constructor along with the registery
+// we should have a handler that triggers reverseProxy.ServeHttp if doing an external route service request
+// routeService reverseProxy will be configured with a routeService round tripper
+// If using an internal route service, must change context to have the pool for the route service
+
 // NewRouteService creates a handler responsible for handling route services
-func NewRouteService(config *routeservice.RouteServiceConfig, logger logger.Logger) negroni.Handler {
+func NewRouteService(routeRegistry registry.Registry, rsReverseProxy RouteServiceProxy, config *routeservice.RouteServiceConfig, logger logger.Logger) negroni.Handler {
 	return &routeService{
-		config: config,
-		logger: logger,
+		routeRegistry: routeRegistry,
+		config:        config,
+		logger:        logger,
 	}
 }
 
@@ -87,6 +100,11 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 			req.Header.Del(routeservice.RouteServiceMetadata)
 			req.Header.Del(routeservice.RouteServiceForwardedURL)
 		} else {
+			//TODO:
+			//look up rs url in the registry
+			// if match
+			// call next
+			// otherwise call local handler for rs reverse proxy
 			var err error
 			// should not hardcode http, will be addressed by #100982038
 			routeServiceArgs, err = r.config.Request(routeServiceUrl, forwardedURLRaw)
@@ -107,9 +125,14 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 			req.Header.Set(routeservice.RouteServiceForwardedURL, routeServiceArgs.ForwardedURL)
 
 			req = req.WithContext(context.WithValue(req.Context(), RouteServiceURLCtxKey, routeServiceArgs.ParsedUrl))
+
+			routeURI := route.Uri(routeServiceArgs.ParsedUrl.String())
+			rsPool := r.routeRegistry.Lookup(routeURI)
+
+			req = req.WithContext(context.WithValue(req.Context(), "RoutePool", rsPool))
+
 		}
 	}
-
 	next(rw, req)
 }
 

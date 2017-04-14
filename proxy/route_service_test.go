@@ -373,9 +373,9 @@ var _ = Describe("Route Services", func() {
 		})
 	})
 
-	Context("when the route service is a CF app", func() {
+	XContext("when the route service is a CF app", func() {
 
-		FIt("only calls proxyHandler once", func() {
+		It("only calls proxyHandler once", func() {
 			rsListener := registerHandler(r, "my_route_service.com", func(conn *test_util.HttpConn) {
 				defer GinkgoRecover()
 

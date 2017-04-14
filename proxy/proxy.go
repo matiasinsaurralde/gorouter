@@ -104,6 +104,14 @@ func NewProxy(
 		ModifyResponse: p.modifyResponse,
 	}
 
+	// rsReverseRroxy := &ReverseProxy{
+	// 	Director:       p.setupProxyRequest,
+	// 	Transport:      p.routeServiceRoundTripper(httpTransport),
+	// 	FlushInterval:  50 * time.Millisecond,
+	// 	BufferPool:     p.bufferPool,
+	// 	ModifyResponse: p.modifyResponse,
+	// }
+
 	zipkinHandler := handlers.NewZipkin(c.Tracing.EnableZipkin, c.ExtraHeadersToLog, logger)
 	n := negroni.New()
 	n.Use(handlers.NewProxyWriter())
@@ -115,7 +123,7 @@ func NewProxy(
 	n.Use(zipkinHandler)
 	n.Use(handlers.NewProtocolCheck(logger))
 	n.Use(handlers.NewLookup(registry, reporter, logger))
-	n.Use(handlers.NewRouteService(routeServiceConfig, logger))
+	n.Use(handlers.NewRouteService(registry, nil, routeServiceConfig, logger))
 	n.Use(p)
 	n.UseHandler(rproxy)
 

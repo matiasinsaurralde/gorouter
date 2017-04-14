@@ -5,7 +5,6 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"net/url"
 
 	"github.com/uber-go/zap"
 
@@ -93,12 +92,6 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 	}
 	accessLogRecord := alr.(*schema.AccessLogRecord)
 
-	var routeServiceURL *url.URL
-	rsurl := request.Context().Value(handlers.RouteServiceURLCtxKey)
-	if rsurl != nil {
-		routeServiceURL = rsurl.(*url.URL)
-	}
-
 	routePool := rp.(*route.Pool)
 	stickyEndpointID := getStickySession(request)
 	iter := routePool.Endpoints(rt.defaultLoadBalance, stickyEndpointID)
@@ -106,49 +99,18 @@ func (rt *roundTripper) RoundTrip(request *http.Request) (*http.Response, error)
 	logger := rt.logger
 	for retry := 0; retry < handler.MaxRetries; retry++ {
 
-		if routeServiceURL == nil {
-			logger.Debug("backend", zap.Int("attempt", retry))
-			endpoint, err = rt.selectEndpoint(iter, request)
-			if err != nil {
-				break
-			}
-			logger = logger.With(zap.Nest("route-endpoint", endpoint.ToLogData()...))
-			res, err = rt.backendRoundTrip(request, endpoint, iter)
-			if err == nil || !retryableError(err) {
-				break
-			}
-			iter.EndpointFailed()
-			logger.Error("backend-endpoint-failed", zap.Error(err))
-		} else {
-			logger.Debug(
-				"route-service",
-				zap.Object("route-service-url", routeServiceURL),
-				zap.Int("attempt", retry),
-			)
-
-			// lookup routeService URL in the routepool
-
-			// this is an empty endpoint to fail proof
-			// this should now be the real service endpoint
-			endpoint = newRouteServiceEndpoint()
-			request.Host = routeServiceURL.Host
-			request.URL = routeServiceURL
-			res, err = rt.transport.RoundTrip(request)
-			if err == nil {
-				if res != nil && (res.StatusCode < 200 || res.StatusCode >= 300) {
-					logger.Info(
-						"route-service-response",
-						zap.String("endpoint", request.URL.String()),
-						zap.Int("status-code", res.StatusCode),
-					)
-				}
-				break
-			}
-			if !retryableError(err) {
-				break
-			}
-			logger.Error("route-service-connection-failed", zap.Error(err))
+		logger.Debug("backend", zap.Int("attempt", retry))
+		endpoint, err = rt.selectEndpoint(iter, request)
+		if err != nil {
+			break
 		}
+		logger = logger.With(zap.Nest("route-endpoint", endpoint.ToLogData()...))
+		res, err = rt.backendRoundTrip(request, endpoint, iter)
+		if err == nil || !retryableError(err) {
+			break
+		}
+		iter.EndpointFailed()
+		logger.Error("backend-endpoint-failed", zap.Error(err))
 	}
 
 	accessLogRecord.RouteEndpoint = endpoint
@@ -279,14 +241,5 @@ func getStickySession(request *http.Request) string {
 
 func retryableError(err error) bool {
 	ne, netErr := err.(*net.OpError)
-	if netErr && (ne.Op == "dial" || ne.Op == "read" && ne.Err.Error() == "read: connection reset by peer") {
-		return true
-	}
-	return false
-}
-
-func newRouteServiceEndpoint() *route.Endpoint {
-	return &route.Endpoint{
-		Tags: map[string]string{},
-	}
+	return netErr && (ne.Op == "dial" || ne.Op == "read" && ne.Err.Error() == "read: connection reset by peer")
 }
