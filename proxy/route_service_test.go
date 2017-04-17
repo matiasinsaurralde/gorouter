@@ -373,33 +373,36 @@ var _ = Describe("Route Services", func() {
 		})
 	})
 
-	XContext("when the route service is a CF app", func() {
+	Context("when the route service is a CF app", func() {
 
-		It("only calls proxyHandler once", func() {
-			rsListener := registerHandler(r, "my_route_service.com", func(conn *test_util.HttpConn) {
+		It("successfully looks up the route service and sends the request", func() {
+
+			routeServiceHandler := func(conn *test_util.HttpConn) {
 				defer GinkgoRecover()
+				resp := test_util.NewResponse(http.StatusOK)
+				req, _ := conn.ReadRequest()
 
-				r, _ := conn.ReadRequest()
-				Expect(r.Host).ToNot(Equal("my_host.com"))
-				metaHeader := r.Header.Get(routeservice.RouteServiceMetadata)
-				sigHeader := r.Header.Get(routeservice.RouteServiceSignature)
+				Expect(req.Host).To(Equal("my_app.com"))
+				metaHeader := req.Header.Get(routeservice.RouteServiceMetadata)
+				sigHeader := req.Header.Get(routeservice.RouteServiceSignature)
 
 				crypto, err := secure.NewAesGCM([]byte(cryptoKey))
 				Expect(err).ToNot(HaveOccurred())
 				_, err = header.SignatureFromHeaders(sigHeader, metaHeader, crypto)
-
 				Expect(err).ToNot(HaveOccurred())
-				Expect(r.Header.Get("X-CF-ApplicationID")).ToNot(Equal(""))
 
-				// validate client request header
-				Expect(r.Header.Get("X-CF-Forwarded-Url")).To(Equal(forwardedUrl))
+				// X-CF-ApplicationID will only be set if the request was sent to internal cf app first time
+				Expect(req.Header.Get("X-CF-ApplicationID")).To(Equal("my-route-service-app-id"))
 
-				_, err = conn.Writer.Write([]byte("My Special Snowflake Route Service\n"))
-				Expect(err).ToNot(HaveOccurred())
-			})
+				Expect(req.Header.Get("X-CF-Forwarded-Url")).To(Equal("https://my_app.com/"))
+				conn.WriteResponse(resp)
+			}
 
-			appListener := registerHandlerWithRouteService(r, "my_host.com", "http://my_route_service.com", func(conn *test_util.HttpConn) {
+			rsListener := registerHandlerWithAppId(r, "route_service.com", "", routeServiceHandler, "", "my-route-service-app-id")
+			appListener := registerHandlerWithRouteService(r, "my_app.com", "route_service.com", func(conn *test_util.HttpConn) {
 				defer GinkgoRecover()
+				resp := test_util.NewResponse(http.StatusOK)
+				conn.WriteResponse(resp)
 				Fail("Should not get here")
 			})
 			defer func() {
@@ -408,14 +411,12 @@ var _ = Describe("Route Services", func() {
 			}()
 			conn := dialProxy(proxyServer)
 
-			req := test_util.NewRequest("GET", "my_host.com", "", nil)
+			req := test_util.NewRequest("GET", "my_app.com", "", nil)
 			conn.WriteRequest(req)
 
 			res, _ := readResponse(conn)
 
-			okCodes := []int{http.StatusOK, http.StatusFound}
-			Expect(okCodes).Should(ContainElement(res.StatusCode))
-
+			Expect(res.StatusCode).To(Equal(http.StatusOK))
 		})
 	})
 })

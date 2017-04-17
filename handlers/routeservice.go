@@ -16,11 +16,13 @@ import (
 )
 
 type routeService struct {
-	routeRegistry registry.Registry
-	config        *routeservice.RouteServiceConfig
-	logger        logger.Logger
+	routeRegistry  registry.Registry
+	rsReverseProxy RouteServiceProxy
+	config         *routeservice.RouteServiceConfig
+	logger         logger.Logger
 }
 
+//go:generate counterfeiter -o fakes/fake_route_service_proxy.go . RouteServiceProxy
 type RouteServiceProxy interface {
 	ServeHTTP(responseWriter http.ResponseWriter, request *http.Request)
 }
@@ -33,9 +35,10 @@ type RouteServiceProxy interface {
 // NewRouteService creates a handler responsible for handling route services
 func NewRouteService(routeRegistry registry.Registry, rsReverseProxy RouteServiceProxy, config *routeservice.RouteServiceConfig, logger logger.Logger) negroni.Handler {
 	return &routeService{
-		routeRegistry: routeRegistry,
-		config:        config,
-		logger:        logger,
+		routeRegistry:  routeRegistry,
+		rsReverseProxy: rsReverseProxy,
+		config:         config,
+		logger:         logger,
 	}
 }
 
@@ -100,11 +103,6 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 			req.Header.Del(routeservice.RouteServiceMetadata)
 			req.Header.Del(routeservice.RouteServiceForwardedURL)
 		} else {
-			//TODO:
-			//look up rs url in the registry
-			// if match
-			// call next
-			// otherwise call local handler for rs reverse proxy
 			var err error
 			// should not hardcode http, will be addressed by #100982038
 			routeServiceArgs, err = r.config.Request(routeServiceUrl, forwardedURLRaw)
@@ -126,11 +124,15 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 
 			req = req.WithContext(context.WithValue(req.Context(), RouteServiceURLCtxKey, routeServiceArgs.ParsedUrl))
 
-			routeURI := route.Uri(routeServiceArgs.ParsedUrl.String())
+			routeURI := route.Uri(routeServiceArgs.ParsedUrl.Host + routeServiceArgs.ParsedUrl.Path)
 			rsPool := r.routeRegistry.Lookup(routeURI)
 
 			req = req.WithContext(context.WithValue(req.Context(), "RoutePool", rsPool))
 
+			if rsPool == nil || rsPool.IsEmpty() {
+				r.rsReverseProxy.ServeHTTP(rw, req)
+				return
+			}
 		}
 	}
 	next(rw, req)

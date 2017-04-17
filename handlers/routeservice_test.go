@@ -13,7 +13,7 @@ import (
 	"code.cloudfoundry.org/gorouter/access_log/schema"
 	"code.cloudfoundry.org/gorouter/common/secure"
 	"code.cloudfoundry.org/gorouter/handlers"
-	"code.cloudfoundry.org/gorouter/proxy"
+	"code.cloudfoundry.org/gorouter/handlers/fakes"
 	"code.cloudfoundry.org/gorouter/route"
 	"code.cloudfoundry.org/gorouter/routeservice"
 	"code.cloudfoundry.org/gorouter/routeservice/header"
@@ -21,8 +21,7 @@ import (
 	"code.cloudfoundry.org/routing-api/models"
 
 	logger_fakes "code.cloudfoundry.org/gorouter/logger/fakes"
-	round_tripper_fakes "code.cloudfoundry.org/gorouter/proxy/round_tripper/fakes"
-	"code.cloudfoundry.org/gorouter/registry/fakes"
+	registry_fakes "code.cloudfoundry.org/gorouter/registry/fakes"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -31,9 +30,9 @@ import (
 
 var _ = Describe("Route Service Handler", func() {
 	var (
-		fakeRegistry          *fakes.FakeRegistry
-		routeServiceHandler   negroni.Handler
-		fakeProxyRoundTripper *round_tripper_fakes.FakeProxyRoundTripper
+		fakeRegistry        *registry_fakes.FakeRegistry
+		routeServiceHandler negroni.Handler
+		fakeReverseProxy    *fakes.FakeRouteServiceProxy
 
 		resp *httptest.ResponseRecorder
 		req  *http.Request
@@ -75,7 +74,7 @@ var _ = Describe("Route Service Handler", func() {
 	}
 
 	BeforeEach(func() {
-		fakeRegistry = &fakes.FakeRegistry{}
+		fakeRegistry = &registry_fakes.FakeRegistry{}
 		routePool = route.NewPool(1*time.Second, "")
 		forwardedUrl = "https://my_host.com/resource+9-9_9?query=123&query$2=345#page1..5"
 		body := bytes.NewBufferString("What are you?")
@@ -94,14 +93,11 @@ var _ = Describe("Route Service Handler", func() {
 			fakeLogger, true, 60*time.Second, crypto, nil, true,
 		)
 
-		fakeProxyRoundTripper = &round_tripper_fakes.FakeProxyRoundTripper{}
+		fakeReverseProxy = &fakes.FakeRouteServiceProxy{}
 	})
 
 	JustBeforeEach(func() {
-		reverseProxy := &proxy.ReverseProxy{
-			Transport: fakeProxyRoundTripper,
-		}
-		routeServiceHandler = handlers.NewRouteService(fakeRegistry, reverseProxy, config, fakeLogger)
+		routeServiceHandler = handlers.NewRouteService(fakeRegistry, fakeReverseProxy, config, fakeLogger)
 	})
 
 	AfterEach(func() {
@@ -192,14 +188,13 @@ var _ = Describe("Route Service Handler", func() {
 				Expect(added).To(BeTrue())
 			})
 
-			FIt("sends the request to the route service with X-CF-Forwarded-Url using https scheme", func() {
+			It("sends the request to the route service with X-CF-Forwarded-Url using https scheme", func() {
 				routeServiceHandler.ServeHTTP(resp, req, proxyHandler)
+				// to check whether did go to teapot handler
+				Expect(resp.Code).ToNot(Equal(http.StatusTeapot))
 
-				Expect(resp.Code).To(Equal(http.StatusTeapot))
-
-				var passedReq *http.Request
-				Eventually(reqChan).Should(Receive(&passedReq))
-
+				Expect(fakeReverseProxy.ServeHTTPCallCount()).To(Equal(1))
+				_, passedReq := fakeReverseProxy.ServeHTTPArgsForCall(0)
 				Expect(passedReq.Header.Get(routeservice.RouteServiceSignature)).ToNot(BeEmpty())
 				Expect(passedReq.Header.Get(routeservice.RouteServiceMetadata)).ToNot(BeEmpty())
 				Expect(passedReq.Header.Get(routeservice.RouteServiceForwardedURL)).To(ContainSubstring("https://"))
@@ -209,9 +204,8 @@ var _ = Describe("Route Service Handler", func() {
 				routeServiceURL := rsurl.(*url.URL)
 				Expect(routeServiceURL.Host).To(Equal("route-service.com"))
 				Expect(routeServiceURL.Scheme).To(Equal("https"))
-				Consistently(nextCalled).ShouldNot(Receive())
 
-				Expect(fakeProxyRoundTripper.RoundTripCallCount()).To(Equal(1))
+				Consistently(nextCalled).ShouldNot(Receive())
 			})
 
 			Context("when route service is a CF app", func() {
@@ -264,14 +258,14 @@ var _ = Describe("Route Service Handler", func() {
 						fakeLogger, true, 60*time.Second, crypto, nil, false,
 					)
 				})
+
 				It("sends the request to the route service with X-CF-Forwarded-Url using http scheme", func() {
 					routeServiceHandler.ServeHTTP(resp, req, proxyHandler)
+					// to check whether did go to teapot handler
+					Expect(resp.Code).ToNot(Equal(http.StatusTeapot))
 
-					Expect(resp.Code).To(Equal(http.StatusTeapot))
-
-					var passedReq *http.Request
-					Eventually(reqChan).Should(Receive(&passedReq))
-
+					Expect(fakeReverseProxy.ServeHTTPCallCount()).To(Equal(1))
+					_, passedReq := fakeReverseProxy.ServeHTTPArgsForCall(0)
 					Expect(passedReq.Header.Get(routeservice.RouteServiceSignature)).ToNot(BeEmpty())
 					Expect(passedReq.Header.Get(routeservice.RouteServiceMetadata)).ToNot(BeEmpty())
 					Expect(passedReq.Header.Get(routeservice.RouteServiceForwardedURL)).To(ContainSubstring("http://"))
@@ -281,7 +275,8 @@ var _ = Describe("Route Service Handler", func() {
 					routeServiceURL := rsurl.(*url.URL)
 					Expect(routeServiceURL.Host).To(Equal("route-service.com"))
 					Expect(routeServiceURL.Scheme).To(Equal("https"))
-					Eventually(nextCalled).Should(Receive(), "Expected the next handler to be called.")
+
+					Consistently(nextCalled).ShouldNot(Receive())
 				})
 			})
 

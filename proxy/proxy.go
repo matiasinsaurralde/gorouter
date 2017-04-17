@@ -104,13 +104,13 @@ func NewProxy(
 		ModifyResponse: p.modifyResponse,
 	}
 
-	// rsReverseRroxy := &ReverseProxy{
-	// 	Director:       p.setupProxyRequest,
-	// 	Transport:      p.routeServiceRoundTripper(httpTransport),
-	// 	FlushInterval:  50 * time.Millisecond,
-	// 	BufferPool:     p.bufferPool,
-	// 	ModifyResponse: p.modifyResponse,
-	// }
+	rsReverseProxy := &ReverseProxy{
+		Director:       p.setupProxyRequest,
+		Transport:      p.routeServiceRoundTripper(httpTransport),
+		FlushInterval:  50 * time.Millisecond,
+		BufferPool:     p.bufferPool,
+		ModifyResponse: p.modifyResponse,
+	}
 
 	zipkinHandler := handlers.NewZipkin(c.Tracing.EnableZipkin, c.ExtraHeadersToLog, logger)
 	n := negroni.New()
@@ -123,7 +123,7 @@ func NewProxy(
 	n.Use(zipkinHandler)
 	n.Use(handlers.NewProtocolCheck(logger))
 	n.Use(handlers.NewLookup(registry, reporter, logger))
-	n.Use(handlers.NewRouteService(registry, nil, routeServiceConfig, logger))
+	n.Use(handlers.NewRouteService(registry, rsReverseProxy, routeServiceConfig, logger))
 	n.Use(p)
 	n.UseHandler(rproxy)
 
@@ -144,6 +144,14 @@ func hostWithoutPort(req *http.Request) string {
 
 func (p *proxy) proxyRoundTripper(transport round_tripper.ProxyRoundTripper) round_tripper.ProxyRoundTripper {
 	return round_tripper.NewProxyRoundTripper(
+		round_tripper.NewDropsondeRoundTripper(transport),
+		p.logger, p.traceKey, p.ip, p.defaultLoadBalance,
+		p.reporter, p.secureCookies,
+	)
+}
+
+func (p *proxy) routeServiceRoundTripper(transport round_tripper.ProxyRoundTripper) round_tripper.ProxyRoundTripper {
+	return round_tripper.NewRouteServiceRoundTripper(
 		round_tripper.NewDropsondeRoundTripper(transport),
 		p.logger, p.traceKey, p.ip, p.defaultLoadBalance,
 		p.reporter, p.secureCookies,
