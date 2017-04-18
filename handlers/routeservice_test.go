@@ -232,7 +232,7 @@ var _ = Describe("Route Service Handler", func() {
 
 					Expect(fakeRegistry.LookupCallCount()).To(Equal(1))
 					routeURI := fakeRegistry.LookupArgsForCall(0)
-					Expect(routeURI).To(Equal(route.Uri("https://route-service.com")))
+					Expect(routeURI).To(Equal(route.Uri("route-service.com")))
 
 					rsURL := passedReq.Context().Value(handlers.RouteServiceURLCtxKey)
 					Expect(rsURL).ToNot(BeNil())
