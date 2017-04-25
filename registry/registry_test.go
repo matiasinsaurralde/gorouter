@@ -177,7 +177,7 @@ var _ = Describe("RouteRegistry", func() {
 			})
 		})
 
-		FContext("when route registration message is received", func() {
+		Context("when route registration message is received", func() {
 			It("logs at debug level", func() {
 				r.Register("a.route", fooEndpoint)
 				Expect(logger).To(gbytes.Say(`"log_level":0.*uri-added.*a\.route`))
@@ -428,7 +428,7 @@ var _ = Describe("RouteRegistry", func() {
 
 		})
 
-		FContext("when route unregistration message is received", func() {
+		Context("when route unregistration message is received", func() {
 			BeforeEach(func() {
 				r.Register("a.route", fooEndpoint)
 				r.Unregister("a.route", fooEndpoint)
