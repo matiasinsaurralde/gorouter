@@ -73,6 +73,7 @@ func main() {
 		logger.Fatal("dropsonde-initialize-error", zap.Error(err))
 	}
 
+	logger.Info("wtf potato", zap.String("length", fmt.Sprintf("%d", len(c.IsolationSegments))))
 	if len(c.IsolationSegments) > 0 {
 		logger.Info("retrieved-isolation-segments", zap.String("isolation_segments", fmt.Sprintf("[%s]", strings.Join(c.IsolationSegments, ","))))
 	}
