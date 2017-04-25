@@ -177,7 +177,7 @@ var _ = Describe("RouteRegistry", func() {
 			})
 		})
 
-		Context("when route registration message is received", func() {
+		FContext("when route registration message is received", func() {
 			It("logs at debug level", func() {
 				r.Register("a.route", fooEndpoint)
 				Expect(logger).To(gbytes.Say(`"log_level":0.*uri-added.*a\.route`))
@@ -188,9 +188,13 @@ var _ = Describe("RouteRegistry", func() {
 				Expect(logger).To(gbytes.Say(`uri-added.*.*a\.route`))
 				r.Register("a.route", fooEndpoint)
 				Expect(logger).NotTo(gbytes.Say(`uri-added.*.*a\.route`))
+				By("not providing IsolationSegment property")
+				r.Register("a.route", fooEndpoint)
+				//TODO: use pattern matching to make sure we are asserting on the unregister line
+				Expect(logger).To(gbytes.Say(`"isolation_segment":"-"`))
 			})
 
-			FIt("logs register message with IsolationSegment when it's provided", func() {
+			It("logs register message with IsolationSegment when it's provided", func() {
 				isoSegEndpoint := route.NewEndpoint("12345", "192.168.1.1", 1234,
 					"id1", "0",
 					map[string]string{
@@ -198,6 +202,7 @@ var _ = Describe("RouteRegistry", func() {
 						"framework": "sinatra",
 					}, -1, "", modTag, "is1")
 				r.Register("a.route", isoSegEndpoint)
+				//TODO: use pattern matching to make sure we are asserting on the unregister line
 				Expect(logger).To(gbytes.Say(`"isolation_segment":"is1"`))
 			})
 		})
@@ -423,7 +428,7 @@ var _ = Describe("RouteRegistry", func() {
 
 		})
 
-		Context("when route unregistration message is received", func() {
+		FContext("when route unregistration message is received", func() {
 			BeforeEach(func() {
 				r.Register("a.route", fooEndpoint)
 				r.Unregister("a.route", fooEndpoint)
@@ -436,6 +441,24 @@ var _ = Describe("RouteRegistry", func() {
 			It("only logs unregistration for existing routes", func() {
 				r.Unregister("non-existent-route", fooEndpoint)
 				Expect(logger).NotTo(gbytes.Say(`unregister.*.*a\.non-existent-route`))
+
+				By("not providing IsolationSegment property")
+				r.Unregister("a.route", fooEndpoint)
+				//TODO: use pattern matching to make sure we are asserting on the unregister line
+				Expect(logger).To(gbytes.Say(`"isolation_segment":"-"`))
+			})
+
+			It("logs unregister message with IsolationSegment when it's provided", func() {
+				isoSegEndpoint := route.NewEndpoint("12345", "192.168.1.1", 1234,
+					"id1", "0",
+					map[string]string{
+						"runtime":   "ruby18",
+						"framework": "sinatra",
+					}, -1, "", modTag, "is1")
+				r.Register("a.isoSegRoute", isoSegEndpoint)
+				r.Unregister("a.isoSegRoute", isoSegEndpoint)
+				//TODO: use pattern matching to make sure we are asserting on the unregister line
+				Expect(logger).To(gbytes.Say(`"isolation_segment":"is1"`))
 			})
 		})
 
