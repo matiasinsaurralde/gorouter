@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net/url"
+	"strings"
 	"sync/atomic"
 
 	"code.cloudfoundry.org/clock"
@@ -70,6 +71,10 @@ func main() {
 	err := dropsonde.Initialize(c.Logging.MetronAddress, c.Logging.JobName)
 	if err != nil {
 		logger.Fatal("dropsonde-initialize-error", zap.Error(err))
+	}
+
+	if len(c.IsolationSegments) > 0 {
+		logger.Info("retrieved-isolation-segments", zap.String("isolation_segments", fmt.Sprintf("[%s]", strings.Join(c.IsolationSegments, ","))))
 	}
 
 	// setup number of procs

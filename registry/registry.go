@@ -95,6 +95,7 @@ func (r *RouteRegistry) Register(uri route.Uri, endpoint *route.Endpoint) {
 		zap.Stringer("uri", uri),
 		zap.String("backend", endpoint.CanonicalAddr()),
 		zap.Object("modification_tag", endpoint.ModificationTag),
+		zap.String("isolation_segment", endpoint.IsolationSegment),
 	}
 
 	if endpointAdded {
