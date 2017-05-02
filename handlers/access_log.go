@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"sync/atomic"
@@ -42,8 +43,11 @@ func (a *accessLog) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http
 
 	r = r.WithContext(context.WithValue(r.Context(), "AccessLogRecord", alr))
 
+	fmt.Printf("*****access-log-record: %#v\n", alr)
+	fmt.Printf("*****access-log-record-before-next, status code: %i\n", proxyWriter.Status())
 	next(rw, r)
 
+	fmt.Printf("*****access-log-record-after-next, status code: %i\n", proxyWriter.Status())
 	alr.RequestBytesReceived = requestBodyCounter.GetCount()
 	alr.BodyBytesSent = proxyWriter.Size()
 	alr.FinishedAt = time.Now()

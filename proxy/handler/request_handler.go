@@ -146,14 +146,17 @@ func (h *RequestHandler) HandleWebSocketRequest(iter route.EndpointIterator) {
 
 	h.logrecord.StatusCode = http.StatusSwitchingProtocols
 
+	fmt.Println("*****handling-web-socket-request")
 	err := h.serveWebSocket(iter)
 	if err != nil {
+		fmt.Println("*****ERROR-web-socket-request")
 		h.logger.Error("websocket-request-failed", zap.Error(err))
 		h.writeStatus(http.StatusBadRequest, "WebSocket request to endpoint failed.")
 		h.reporter.CaptureWebSocketFailure()
 		return
 	}
 	h.reporter.CaptureWebSocketUpdate()
+	fmt.Println("*****FINISHED-handling-web-socket-request")
 }
 
 func (h *RequestHandler) writeStatus(code int, message string) {
@@ -217,13 +220,15 @@ func (h *RequestHandler) serveTcp(iter route.EndpointIterator) error {
 func (h *RequestHandler) serveWebSocket(iter route.EndpointIterator) error {
 	var err error
 	var connection net.Conn
-
+	fmt.Println("** 1 ***")
 	client, _, err := h.hijack()
 	if err != nil {
+		fmt.Println("** 2 ***")
 		return err
 	}
 
 	defer func() {
+		fmt.Println("** closing func ***")
 		client.Close()
 		if connection != nil {
 			connection.Close()
@@ -231,37 +236,46 @@ func (h *RequestHandler) serveWebSocket(iter route.EndpointIterator) error {
 	}()
 
 	retry := 0
+	fmt.Println("** 3 ***")
 	for {
 		endpoint := iter.Next()
 		if endpoint == nil {
 			err = NoEndpointsAvailable
 			h.HandleBadGateway(err, h.request)
+			fmt.Println("** bad gateway ***")
 			return err
 		}
 
 		connection, err = net.DialTimeout("tcp", endpoint.CanonicalAddr(), 5*time.Second)
+		fmt.Println("** conn tcp ***")
 		if err == nil {
+			fmt.Println("** setting up tcp ***")
 			h.setupRequest(endpoint)
 			break
 		}
 
+		fmt.Println("*** error on tcp ***")
 		iter.EndpointFailed()
 		h.logger.Error("websocket-connection-failed", zap.Error(err))
 
 		retry++
 		if retry == MaxRetries {
+			fmt.Println("*** done retrying throwing err ***")
 			return err
 		}
 	}
 
+	fmt.Println("*** writing to conn ***")
 	if connection != nil {
 		err = h.request.Write(connection)
 		if err != nil {
 			return err
 		}
 
+		fmt.Println("*** forwarding to IO client ***")
 		forwardIO(client, connection)
 	}
+	fmt.Println("*** THE END ***")
 	return nil
 }
 
@@ -310,9 +324,16 @@ func (h *RequestHandler) hijack() (client net.Conn, io *bufio.ReadWriter, err er
 func forwardIO(a, b net.Conn) {
 	done := make(chan bool, 2)
 
+	fmt.Println("starting to copy")
 	copy := func(dst io.Writer, src io.Reader) {
 		// don't care about errors here
-		io.Copy(dst, src)
+		fmt.Println("called copy func")
+		by, err := io.Copy(dst, src)
+		fmt.Println("bytes copies", by)
+		if err != nil {
+			fmt.Println("ERROR copying", err)
+		}
+		fmt.Println("sending on done chan")
 		done <- true
 	}
 
@@ -320,4 +341,5 @@ func forwardIO(a, b net.Conn) {
 	go copy(b, a)
 
 	<-done
+	fmt.Println("DONE copying")
 }

@@ -6,6 +6,7 @@ import (
 	"code.cloudfoundry.org/localip"
 	"github.com/nats-io/nats"
 	. "github.com/onsi/gomega"
+	"golang.org/x/net/websocket"
 
 	"encoding/json"
 	"errors"
@@ -47,6 +48,10 @@ func NewTestApp(urls []route.Uri, rPort uint16, mbusClient *nats.Conn, tags map[
 
 func (a *TestApp) AddHandler(path string, handler func(http.ResponseWriter, *http.Request)) {
 	a.mux.HandleFunc(path, handler)
+}
+
+func (a *TestApp) AddWSHandler(path string, handler func(ws *websocket.Conn)) {
+	a.mux.Handle(path, websocket.Handler(handler))
 }
 
 func (a *TestApp) Urls() []route.Uri {
@@ -133,6 +138,31 @@ func (a *TestApp) CheckAppStatus(status int) error {
 		if resp.StatusCode != status {
 			return errors.New(fmt.Sprintf("expected status code %d, got %d", status, resp.StatusCode))
 		}
+	}
+
+	return nil
+}
+
+func (a *TestApp) CheckWebsocketAppStatus() error {
+	for _, appUrl := range a.urls {
+		uri := fmt.Sprintf("http://%s:%d", appUrl, a.rPort)
+		//url, err := url.Parse(uri)
+		req, err := http.NewRequest("GET", uri, nil)
+		if err != nil {
+			return err
+		}
+
+		req.Header.Add("Upgrade", "websocket")
+		req.Header.Add("Connection", "Upgrade")
+
+		client := http.Client{}
+		_, err = client.Do(req)
+		if err != nil {
+			return err
+		}
+		// if resp.StatusCode != http.StatusSwitchingProtocols {
+		// 	return errors.New(fmt.Sprintf("expected status code %d, got %d", http.StatusSwitchingProtocols, resp.StatusCode))
+		// }
 	}
 
 	return nil

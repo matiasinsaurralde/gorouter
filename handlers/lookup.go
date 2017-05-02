@@ -10,6 +10,7 @@ import (
 	router_http "code.cloudfoundry.org/gorouter/common/http"
 	"code.cloudfoundry.org/gorouter/logger"
 	"code.cloudfoundry.org/gorouter/metrics"
+	"code.cloudfoundry.org/gorouter/proxy/utils"
 	"code.cloudfoundry.org/gorouter/registry"
 	"code.cloudfoundry.org/gorouter/route"
 	"github.com/uber-go/zap"
@@ -37,6 +38,7 @@ func NewLookup(registry registry.Registry, rep metrics.CombinedReporter, logger 
 }
 
 func (l *lookupHandler) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	proxyWriter := rw.(utils.ProxyResponseWriter)
 	pool := l.lookup(r)
 	if pool == nil {
 		l.handleMissingRoute(rw, r)
@@ -44,6 +46,7 @@ func (l *lookupHandler) ServeHTTP(rw http.ResponseWriter, r *http.Request, next 
 	}
 	r = r.WithContext(context.WithValue(r.Context(), "RoutePool", pool))
 	next(rw, r)
+	fmt.Println("after-status-code-in-lookup", proxyWriter.Status())
 }
 
 func (l *lookupHandler) handleMissingRoute(rw http.ResponseWriter, r *http.Request) {

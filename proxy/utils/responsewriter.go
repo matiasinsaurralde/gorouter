@@ -3,8 +3,10 @@ package utils
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"runtime/debug"
 )
 
 type ProxyResponseWriter interface {
@@ -62,6 +64,7 @@ func (p *proxyResponseWriter) Write(b []byte) (int, error) {
 	}
 
 	if p.status == 0 {
+		fmt.Println("proxy-response-writer-in-WRITE", p.status)
 		p.WriteHeader(http.StatusOK)
 	}
 	size, err := p.w.Write(b)
@@ -70,6 +73,8 @@ func (p *proxyResponseWriter) Write(b []byte) (int, error) {
 }
 
 func (p *proxyResponseWriter) WriteHeader(s int) {
+	fmt.Println("proxy-response-writer-writing-status-code", s)
+	debug.PrintStack()
 	if p.done {
 		return
 	}

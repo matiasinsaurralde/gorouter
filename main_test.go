@@ -3,11 +3,14 @@ package main_test
 import (
 	"crypto/tls"
 	"errors"
+	"io"
 	"path"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"golang.org/x/net/websocket"
 
 	"code.cloudfoundry.org/gorouter/config"
 	"code.cloudfoundry.org/gorouter/handlers"
@@ -477,6 +480,55 @@ var _ = Describe("Router Integration", func() {
 				}()
 				Eventually(grouter).Should(Say("gorouter.stopped"))
 			})
+		})
+	})
+
+	Context("when backend repsonds with 101 status code", func() {
+		FIt("generates access log", func() {
+			localIP, err := localip.LocalIP()
+			Expect(err).ToNot(HaveOccurred())
+			statusPort := test_util.NextAvailPort()
+			proxyPort := test_util.NextAvailPort()
+
+			cfgFile := filepath.Join(tmpdir, "config.yml")
+			config := createConfig(cfgFile, statusPort, proxyPort, defaultPruneInterval, defaultPruneThreshold, 0, false, natsPort)
+			config.AccessLog.File = filepath.Join(tmpdir, "access_log.log")
+			writeConfig(config, cfgFile)
+			gorouterSession = startGorouterSession(cfgFile)
+
+			mbusClient, err := newMessageBus(config)
+			Expect(err).ToNot(HaveOccurred())
+
+			runningApp := test.NewGreetApp([]route.Uri{"innocent.bystander.vcap.me"}, proxyPort, mbusClient, nil)
+			runningApp.AddWSHandler("/some", func(ws *websocket.Conn) {
+				defer GinkgoRecover()
+				io.Copy(ws, ws)
+				//w.WriteHeader(http.Stat)
+			})
+
+			runningApp.Listen()
+			routesUri := fmt.Sprintf("http://%s:%s@%s:%d/routes", config.Status.User, config.Status.Pass, localIP, statusPort)
+			Eventually(func() bool { return appRegistered(routesUri, runningApp) }).Should(BeTrue())
+
+			heartbeatInterval := 200 * time.Millisecond
+			runningTicker := time.NewTicker(heartbeatInterval)
+
+			go func() {
+				for {
+					select {
+					case <-runningTicker.C:
+						runningApp.Register()
+					}
+				}
+			}()
+			//			runningApp.VerifyAppStatus(200)
+
+			Expect(runningApp.CheckWebsocketAppStatus()).To(Succeed())
+			// read from access log file and verify the contents
+			accessLogContents, err := ioutil.ReadFile(config.AccessLog.File)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(string(accessLogContents)).To(ContainSubstring("101"))
+			time.Sleep(1 * time.Second)
 		})
 	})
 

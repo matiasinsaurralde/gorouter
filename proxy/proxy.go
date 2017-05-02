@@ -3,6 +3,7 @@ package proxy
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -202,10 +203,12 @@ func (p *proxy) ServeHTTP(responseWriter http.ResponseWriter, request *http.Requ
 	}
 
 	if isWebSocketUpgrade(request) {
+		fmt.Println("******is-websocket-upgrade")
 		handler.HandleWebSocketRequest(iter)
 		return
 	}
 
+	fmt.Println("******proxy-NEXT")
 	next(responseWriter, request)
 }
 
