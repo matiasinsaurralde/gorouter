@@ -30,8 +30,6 @@ func NewRouteService(config *routeservice.RouteServiceConfig, logger logger.Logg
 }
 
 func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
-	alr := req.Context().Value("AccessLogRecord")
-
 	rp := req.Context().Value("RoutePool")
 	if rp == nil {
 		r.logger.Error("RoutePool not set on context", zap.Error(errors.New("failed-to-access-RoutePool")))
@@ -50,7 +48,6 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 			rw,
 			http.StatusBadGateway,
 			"Support for route services is disabled.",
-			alr,
 			r.logger,
 		)
 		return
@@ -80,7 +77,6 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 					rw,
 					http.StatusBadRequest,
 					"Failed to validate Route Service Signature",
-					alr,
 					r.logger,
 				)
 				return
@@ -100,7 +96,6 @@ func (r *routeService) ServeHTTP(rw http.ResponseWriter, req *http.Request, next
 					rw,
 					http.StatusInternalServerError,
 					"Route service request failed.",
-					alr,
 					r.logger,
 				)
 				return

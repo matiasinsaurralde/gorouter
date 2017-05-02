@@ -1,12 +1,10 @@
 package handlers_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"time"
 
-	"code.cloudfoundry.org/gorouter/access_log/schema"
 	"code.cloudfoundry.org/gorouter/handlers"
 	"code.cloudfoundry.org/gorouter/metrics/fakes"
 	fakeRegistry "code.cloudfoundry.org/gorouter/registry/fakes"
@@ -21,9 +19,8 @@ import (
 
 var _ = Describe("Lookup", func() {
 	var (
-		handler     negroni.Handler
+		handler     *negroni.Negroni
 		nextHandler http.HandlerFunc
-		alr         *schema.AccessLogRecord
 		logger      logger.Logger
 		reg         *fakeRegistry.FakeRegistry
 		rep         *fakes.FakeCombinedReporter
@@ -44,19 +41,18 @@ var _ = Describe("Lookup", func() {
 		logger = test_util.NewTestZapLogger("lookup_handler")
 		rep = &fakes.FakeCombinedReporter{}
 		reg = &fakeRegistry.FakeRegistry{}
-		handler = handlers.NewLookup(reg, rep, logger)
+		handler = negroni.New()
+		handler.Use(handlers.NewRequestInfo())
+		handler.Use(handlers.NewLookup(reg, rep, logger))
+		handler.UseHandler(nextHandler)
 
 		req = test_util.NewRequest("GET", "example.com", "/", nil)
 		resp = httptest.NewRecorder()
-		alr = &schema.AccessLogRecord{
-			Request: req,
-		}
-		req = req.WithContext(context.WithValue(req.Context(), "AccessLogRecord", alr))
 	})
 
 	Context("when there are no endpoints", func() {
 		BeforeEach(func() {
-			handler.ServeHTTP(resp, req, nextHandler)
+			handler.ServeHTTP(resp, req)
 		})
 
 		It("sends a bad request metric", func() {
@@ -75,10 +71,6 @@ var _ = Describe("Lookup", func() {
 		It("has a meaningful response", func() {
 			Expect(resp.Body.String()).To(ContainSubstring("Requested route ('example.com') does not exist"))
 		})
-
-		It("puts a 404 NotFound in the accessLog", func() {
-			Expect(alr.StatusCode).To(Equal(http.StatusNotFound))
-		})
 	})
 
 	Context("when there are endpoints", func() {
@@ -90,12 +82,14 @@ var _ = Describe("Lookup", func() {
 		})
 
 		JustBeforeEach(func() {
-			handler.ServeHTTP(resp, req, nextHandler)
+			handler.ServeHTTP(resp, req)
 		})
 
 		It("calls next with the pool", func() {
 			Expect(nextCalled).To(BeTrue())
-			Expect(nextRequest.Context().Value("RoutePool")).To(Equal(pool))
+			requestInfo, err := handlers.ContextRequestInfo(nextRequest)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(requestInfo.RoutePool).To(Equal(pool))
 		})
 
 		Context("when a specific instance is requested", func() {
