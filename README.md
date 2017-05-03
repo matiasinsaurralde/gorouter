@@ -241,7 +241,7 @@ $ curl "http://someuser:somepass@10.0.32.15:8080/routes"
 
 Because of the nature of the data present in `/varz` and `/routes`, they require http basic authentication credentials. These credentials can be found the BOSH manifest for cf-release under the `router` job:
 
-```
+```yaml
 properties:
   router:
     status:
@@ -254,7 +254,7 @@ If `router.status.user` is not set in the manifest, the default is `router-statu
 
 Or on the Gorouter VM under `/var/vcap/jobs/gorouter/config/gorouter.yml`:
 
-```
+```yaml
 status:
   port: 8080
   user: some_user
@@ -309,7 +309,7 @@ If you terminate TLS in front of Gorouter, your component should send the `X-For
 
 If your TLS-terminating component does not support sending HTTP headers, we recommend also terminating TLS at Gorouter. In this scenario you should only disable TLS at Gorouter if your TLS-terminating component rejects unencrypted requests **and** your private network is completely trusted. In this case, use the following property to inform applications and CF system components that requests are secure.
 
-```
+```yaml
 properties:
   router:
     force_forwarded_proto_https: true
@@ -323,7 +323,7 @@ If your TLS-terminating component does not support sending HTTP headers, you can
 
 If your TLS-terminating component supports the PROXY protocol, enable the PROXY protocol on Gorouter using the following cf-release manifest property:
 
-```
+```yaml
 properties:
   router:
     enable_proxy: true
